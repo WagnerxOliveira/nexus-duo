@@ -101,7 +101,11 @@ final scoringStrategyProvider = StateProvider<IMatchScoringStrategy>((ref) {
 
 final releaseUpdaterProvider = Provider<GitHubReleaseUpdater>((ref) {
   final config = ref.watch(appConfigProvider);
-  return GitHubReleaseUpdater(repository: config.githubReleasesRepo);
+  return GitHubReleaseUpdater(
+    repository: config.githubReleasesRepo,
+    supabaseUrl: config.supabaseUrl,
+    supabaseAnonKey: config.supabaseAnonKey,
+  );
 });
 
 final autoCheckUpdatesOnLaunchProvider = Provider<bool>((ref) => true);

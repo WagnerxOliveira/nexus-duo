@@ -1,0 +1,132 @@
+name: Auto-Release Mobile (Commit -> Bump -> Signed APK -> Manifest)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/mobile/**'
+      - 'packages/**'
+      - 'scripts/generate-update-manifest.mjs'
+      - 'scripts/bump-mobile-version.mjs'
+  workflow_dispatch:
+
+concurrency:
+  group: auto-release-mobile
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  quality-gate:
+    name: 🧪 Mobile Quality Gate & Release Guard
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.guard.outputs.should_release }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Evaluate Auto-Release Guard
+        id: guard
+        env:
+          ACTOR: ${{ github.actor }}
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          if [ "$ACTOR" = "github-actions[bot]" ]; then
+            echo "Skipping release: commit authored by github-actions[bot]."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if echo "$COMMIT_MSG" | grep -qiE '(\[skip release\]|\[skip ci\]|\[no release\]|^chore\(release\):)'; then
+            echo "Skipping release due to commit guard marker."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Auto-release enabled for this commit on main."
+          echo "should_release=true" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js 22
+        if: steps.guard.outputs.should_release == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run Release Script Tests & Security Audit
+        if: steps.guard.outputs.should_release == 'true'
+        run: |
+          node --test scripts/tests/update-release-scripts.test.mjs
+          node scripts/check-sql-security.mjs
+
+      - name: Setup Java 17
+        if: steps.guard.outputs.should_release == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter 3.47.5
+        if: steps.guard.outputs.should_release == 'true'
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: 'stable'
+          cache: true
+
+      - name: Run Flutter Format, Analyze & Tests
+        if: steps.guard.outputs.should_release == 'true'
+        working-directory: apps/mobile
+        run: |
+          flutter pub get
+          dart format --output=none --set-exit-if-changed .
+          flutter analyze
+          flutter test
+
+  auto-bump-and-tag:
+    name: 🏷️ Auto-Bump SemVer + Monotonic versionCode & Tag
+    needs: quality-gate
+    if: needs.quality-gate.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.bump.outputs.tag }}
+      version_code: ${{ steps.bump.outputs.version_code }}
+    steps:
+      - name: Checkout Main Branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Compute & Write Next Mobile Version
+        id: bump
+        run: |
+          node scripts/bump-mobile-version.mjs \
+            --pubspec apps/mobile/pubspec.yaml \
+            --write \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Commit Version Bump, Create Tag & Push to Main
+        run: |
+          TAG="${{ steps.bump.outputs.tag }}"
+          VER_CODE="${{ steps.bump.outputs.version_code }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/mobile/pubspec.yaml
+          git commit -m "chore(release): bump mobile ${TAG}+${VER_CODE} [skip ci]"
+          git tag -a "$TAG" -m "NEXUS DUO Release ${TAG} (build ${VER_CODE})"
+          git push origin HEAD:main --follow-tags
+
+  publish-release:
+    name: 🚀 Build Signed APKs & Publish Release
+    needs: auto-bump-and-tag
+    uses: ./.github/workflows/release-android.yml
+    with:
+      tag_name: ${{ needs.auto-bump-and-tag.outputs.tag }}
+    secrets: inherit

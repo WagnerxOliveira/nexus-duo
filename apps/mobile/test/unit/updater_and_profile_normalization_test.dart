@@ -102,7 +102,8 @@ void main() {
           releaseNotes: 'Test notes',
           htmlUrl:
               'https://github.com/WagnerxOliveira/nexus-duo/releases/tag/v1.1.0',
-          apkDownloadUrl: 'https://example.com/nexus-duo-v1.1.0-arm64-v8a.apk',
+          apkDownloadUrl:
+              'https://github.com/WagnerxOliveira/nexus-duo/releases/download/v1.1.0/nexus-duo-v1.1.0-arm64-v8a.apk',
           apkFileName: 'nexus-duo-v1.1.0-arm64-v8a.apk',
           apkSizeBytes: payloadBytes.length,
           expectedSha256: validSha,
@@ -125,7 +126,8 @@ void main() {
           releaseNotes: 'Test notes',
           htmlUrl:
               'https://github.com/WagnerxOliveira/nexus-duo/releases/tag/v1.1.0',
-          apkDownloadUrl: 'https://example.com/nexus-duo-v1.1.0-arm64-v8a.apk',
+          apkDownloadUrl:
+              'https://github.com/WagnerxOliveira/nexus-duo/releases/download/v1.1.0/nexus-duo-v1.1.0-arm64-v8a.apk',
           apkFileName: 'nexus-duo-v1.1.0-tampered.apk',
           apkSizeBytes: payloadBytes.length,
           expectedSha256: '0' * 64,

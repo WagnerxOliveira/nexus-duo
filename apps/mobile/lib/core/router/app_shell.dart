@@ -1,26 +1,28 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:nexus_design_tokens/nexus_tokens.dart';
 
 import '../../features/chat/presentation/chat_screen.dart';
 import '../../features/discovery/presentation/discovery_screen.dart';
 import '../../features/lobby/presentation/lobby_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
+import '../providers/app_providers.dart';
 import '../widgets/nexus_ui_kit.dart';
 import '../widgets/nexus_update_widgets.dart';
 
 /// Responsive application shell adapting cleanly between:
 /// - `< 600px`: Bottom Navigation Bar (4 tabs, Thumb Zone)
 /// - `>= 600px`: Left NavigationRail (Tablet & Desktop 2nd-Monitor parity)
-class NexusAppShell extends StatefulWidget {
+class NexusAppShell extends ConsumerStatefulWidget {
   const NexusAppShell({this.initialTabIndex = 0, super.key});
 
   final int initialTabIndex;
 
   @override
-  State<NexusAppShell> createState() => _NexusAppShellState();
+  ConsumerState<NexusAppShell> createState() => _NexusAppShellState();
 }
 
-class _NexusAppShellState extends State<NexusAppShell> {
+class _NexusAppShellState extends ConsumerState<NexusAppShell> {
   late int _currentIndex;
 
   static const List<Widget> _pages = <Widget>[
@@ -40,6 +42,9 @@ class _NexusAppShellState extends State<NexusAppShell> {
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
     final useRail = width >= NexusBreakpoints.tabletMin;
+    final showPill = ref.watch(
+      appUpdateControllerProvider.select((s) => s.shouldShowDiscreetPill),
+    );
 
     if (useRail) {
       return Scaffold(
@@ -82,20 +87,24 @@ class _NexusAppShellState extends State<NexusAppShell> {
             Expanded(
               child: Column(
                 children: <Widget>[
-                  const SafeArea(
-                    bottom: false,
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        NexusSpacing.md,
-                        NexusSpacing.xs,
-                        NexusSpacing.md,
-                        NexusSpacing.xs,
-                      ),
-                      child: Row(
-                        children: <Widget>[Spacer(), NexusUpdatePillButton()],
+                  if (showPill)
+                    const SafeArea(
+                      bottom: false,
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          NexusSpacing.md,
+                          NexusSpacing.xs,
+                          NexusSpacing.md,
+                          NexusSpacing.xs,
+                        ),
+                        child: Row(
+                          children: <Widget>[
+                            Spacer(),
+                            NexusDiscreetUpdatePill(),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
                   Expanded(child: _pages[_currentIndex]),
                 ],
               ),
@@ -121,7 +130,7 @@ class _NexusAppShellState extends State<NexusAppShell> {
                 children: <Widget>[
                   Expanded(child: NexusBrandLogo(compact: true)),
                   SizedBox(width: NexusSpacing.sm),
-                  NexusUpdatePillButton(compact: true),
+                  NexusDiscreetUpdatePill(compact: true),
                 ],
               ),
             ),
