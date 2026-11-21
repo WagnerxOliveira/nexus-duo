@@ -22,40 +22,46 @@ class _TestApp extends ConsumerWidget {
 
 void main() {
   testWidgets(
-    'LoginScreen displays stylish Update Pill & Spotlight Card when newer release exists',
+    'LoginScreen displays discreet Update Pill when newer CDN manifest exists',
     (tester) async {
       final mockClient = MockClient((req) async {
-        if (req.url.path.endsWith('/releases/latest')) {
+        if (req.url.path.endsWith('/update-manifest.json')) {
           return http.Response(
             jsonEncode(<String, dynamic>{
-              'tag_name': 'v9.9.9',
-              'body': 'Melhorias de E2EE e Auth',
-              'html_url':
+              'schema_version': 2,
+              'app_id': 'com.nexusduo.app',
+              'channel': 'stable',
+              'version_name': '9.9.9',
+              'version_code': 99,
+              'min_supported_version_code': 1,
+              'force_update': false,
+              'rollout_enabled': true,
+              'published_at': '2026-11-21T20:00:00Z',
+              'signing_cert_sha256': 'a' * 64,
+              'release_url':
                   'https://github.com/WagnerxOliveira/nexus-duo/releases/tag/v9.9.9',
-              'assets': <Map<String, dynamic>>[
-                <String, dynamic>{
-                  'name': 'nexus-duo-v9.9.9-universal.apk',
-                  'size': 52428800,
-                  'browser_download_url': 'https://example.com/app.apk',
+              'release_notes_pt_br': <String>['Melhorias de E2EE e Auth'],
+              'apks': <String, dynamic>{
+                'universal': <String, dynamic>{
+                  'file_name': 'nexus-duo-v9.9.9-universal.apk',
+                  'url':
+                      'https://github.com/WagnerxOliveira/nexus-duo/releases/download/v9.9.9/nexus-duo-v9.9.9-universal.apk',
+                  'sha256': 'a' * 64,
+                  'size_bytes': 52428800,
                 },
-                <String, dynamic>{
-                  'name': 'SHA256SUMS.txt',
-                  'browser_download_url': 'https://example.com/SHA256SUMS.txt',
-                },
-              ],
+              },
             }),
             200,
           );
         }
-        return http.Response(
-          '${'a' * 64}  nexus-duo-v9.9.9-universal.apk\n',
-          200,
-        );
+        return http.Response('Not found', 404);
       });
 
       final updater = GitHubReleaseUpdater(
         httpClient: mockClient,
-        currentVersionProvider: () async => '1.1.0',
+        installedBuildInfoProvider: () async =>
+            const InstalledBuildInfo(versionName: '1.1.0', versionCode: 3),
+        snoozeStore: UpdateSnoozeStore(),
       );
 
       await tester.pumpWidget(
@@ -70,18 +76,14 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('nexus_update_pill_button')), findsOneWidget);
-      expect(
-        find.byKey(const Key('nexus_update_spotlight_cta')),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining('Atualizar Agora para v9.9.9'),
-        findsOneWidget,
-      );
+      expect(find.byKey(const Key('nexus_update_spotlight_cta')), findsNothing);
 
       await tester.tap(find.byKey(const Key('nexus_update_pill_button')));
       await tester.pumpAndSettle();
       expect(find.text('Central de Atualizações'), findsOneWidget);
+      expect(find.text('Melhorias de E2EE e Auth'), findsOneWidget);
+      expect(find.byKey(const Key('update_sheet_start_cta')), findsOneWidget);
+      expect(find.byKey(const Key('update_sheet_snooze_cta')), findsOneWidget);
     },
   );
 
@@ -105,8 +107,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Always-visible stylish update button is present even with no pending update
-      expect(find.byKey(const Key('nexus_update_pill_button')), findsOneWidget);
+      // Discreet pill stays hidden when auto-check is off / no update pending
+      expect(find.byKey(const Key('nexus_update_pill_button')), findsNothing);
 
       const newEmail = 'jogador.novo@nexusduo.app';
       await tester.enterText(

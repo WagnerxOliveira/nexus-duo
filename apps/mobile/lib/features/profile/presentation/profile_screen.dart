@@ -246,7 +246,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 ),
                 const SizedBox(height: NexusSpacing.md),
 
-                // Autonomous GitHub Releases Updater + Shorebird OTA
+                // Versão & Atualizações (APK Assinado + SHA-256)
                 NexusGlassCard(
                   glow: updateState.hasUpdate,
                   child: Column(
@@ -261,7 +261,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           const SizedBox(width: NexusSpacing.sm),
                           Expanded(
                             child: Text(
-                              'Atualizações Autônomas (v${updateState.currentVersion})',
+                              'Versão & Atualizações',
                               style: Theme.of(context).textTheme.titleLarge,
                             ),
                           ),
@@ -269,7 +269,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       ),
                       const SizedBox(height: NexusSpacing.xs),
                       Text(
-                        'Repositório: WagnerxOliveira/nexus-duo • Verificação obrigatória SHA-256 + permissão Android guiada.',
+                        'Versão instalada: v${updateState.currentVersion} (build ${updateState.currentVersionCode}) • Canal oficial com APK assinado e verificação SHA-256.',
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
                       const SizedBox(height: NexusSpacing.md),
@@ -278,6 +278,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         runSpacing: NexusSpacing.sm,
                         children: <Widget>[
                           OutlinedButton.icon(
+                            key: const Key('profile_check_updates_cta'),
                             onPressed: updateState.isBusy
                                 ? null
                                 : () => updateController.checkForUpdates(
@@ -292,12 +293,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                     ),
                                   )
                                 : const Icon(Icons.refresh_rounded),
-                            label: const Text('Verificar Nova Release'),
+                            label: const Text('Verificar agora'),
                           ),
                           NexusGradientButton(
+                            key: const Key('profile_open_updater_cta'),
                             label: updateState.hasUpdate
                                 ? 'Atualizar v${updateState.info!.latestVersion}'
-                                : 'Abrir Central de Atualização',
+                                : 'Abrir Central',
                             icon: Icons.rocket_launch_rounded,
                             onPressed: () =>
                                 showNexusUpdateCenterSheet(context),

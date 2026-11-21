@@ -4,12 +4,44 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
+  workflow_call:
     inputs:
+      tag_name:
+        description: 'Release tag to build and publish (e.g. v1.2.0)'
+        required: true
+        type: string
       release_notes:
         description: 'Custom Release Notes / Changelog highlight (optional)'
         required: false
-        default: 'Automated release build of NEXUS DUO'
+        default: ''
+        type: string
+      min_supported_version_code:
+        description: 'Minimum supported Android versionCode before forced update'
+        required: false
+        default: 1
+        type: number
+      force_update:
+        description: 'Require immediate mandatory update on clients'
+        required: false
+        default: false
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag semântica alvo (ex: v1.2.0). Vazio = usa v<pubspec version>'
+        required: false
+        default: ''
+        type: string
+      release_notes:
+        description: 'Custom Release Notes / Changelog highlight (optional)'
+        required: false
+        default: ''
+        type: string
+      force_update:
+        description: 'Require immediate mandatory update on clients'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -19,10 +51,56 @@ jobs:
     name: 🤖 Build Android APK & Publish GitHub Release
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
+      - name: Checkout Target Ref
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.tag_name != '' && format('refs/tags/{0}', inputs.tag_name) || github.ref }}
           fetch-depth: 0
+
+      - name: Resolve Release Tag & Validate Monotonic Version
+        id: resolve_tag
+        env:
+          INPUT_TAG: ${{ inputs.tag_name }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          PUBSPEC_VER=$(node -e "const fs=require('fs');const m=fs.readFileSync('apps/mobile/pubspec.yaml','utf8').match(/^version:\s*(\d+\.\d+\.\d+)\+(\d+)/m);if(!m)process.exit(1);console.log(m[1]+'+'+m[2]);")
+          PUB_NAME="${PUBSPEC_VER%%+*}"
+          PUB_CODE="${PUBSPEC_VER##*+}"
+
+          TAG="$INPUT_TAG"
+          if [ -z "$TAG" ]; then
+            if [[ "$GITHUB_REF_NAME" == v* ]]; then
+              TAG="$GITHUB_REF_NAME"
+            else
+              TAG="v$PUB_NAME"
+            fi
+          fi
+
+          TAG_CLEAN="${TAG#v}"
+          if [ "$PUB_NAME" != "$TAG_CLEAN" ]; then
+            echo "::error::pubspec.yaml version ($PUB_NAME) does not match release tag ($TAG)."
+            exit 1
+          fi
+
+          PREV_MANIFEST=$(curl -fsSL "https://github.com/${REPO}/releases/latest/download/update-manifest.json" 2>/dev/null || true)
+          if [ -n "$PREV_MANIFEST" ]; then
+            node -e '
+              const prev = JSON.parse(process.argv[1]);
+              const pubCode = Number(process.argv[2]);
+              const pubName = process.argv[3];
+              if (prev.version_name !== pubName && Number(prev.version_code) >= pubCode) {
+                console.error(`Monotonic versionCode check failed: published=${prev.version_code}, current=${pubCode}`);
+                process.exit(1);
+              }
+              console.log(`Monotonic versionCode OK: prev=${prev.version_code} -> current=${pubCode}`);
+            ' "$PREV_MANIFEST" "$PUB_CODE" "$PUB_NAME"
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version_name=$PUB_NAME" >> "$GITHUB_OUTPUT"
+          echo "version_code=$PUB_CODE" >> "$GITHUB_OUTPUT"
+          echo "Resolved release tag=$TAG (versionCode=$PUB_CODE)"
 
       - name: Setup Java 17
         uses: actions/setup-java@v4
@@ -37,7 +115,7 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Setup Node.js 22 (for Checksum Utility)
+      - name: Setup Node.js 22 (for Manifest & Checksum Utilities)
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -46,31 +124,47 @@ jobs:
         working-directory: apps/mobile
         run: flutter pub get
 
-      - name: Configure Android Signing Keystore (from Secrets)
+      - name: Configure & Fail-Fast Verify Android Signing Keystore
+        id: keystore
         working-directory: apps/mobile
         env:
+          RELEASE_TAG: ${{ steps.resolve_tag.outputs.tag }}
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "::notice::Injecting signing keystore from GitHub Secrets..."
-            CLEAN_STORE_PW="$(printf '%s' "$KEYSTORE_PASSWORD" | tr -d '\r\n')"
-            CLEAN_KEY_PW="$(printf '%s' "$KEY_PASSWORD" | tr -d '\r\n')"
-            CLEAN_ALIAS="$(printf '%s' "$KEY_ALIAS" | tr -d '\r\n')"
-            printf '%s' "$KEYSTORE_BASE64" | tr -d '\r\n ' | base64 --decode > android/app/upload-keystore.jks
-            cat <<EOF > android/key.properties
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            if [[ "$RELEASE_TAG" == v* ]]; then
+              echo "::error::ANDROID_KEYSTORE_BASE64 secret is missing. Production releases NEVER allow debug signing (would break in-app APK upgrades)."
+              exit 1
+            fi
+            echo "cert_sha256=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "::notice::Injecting production PKCS12 signing keystore from GitHub Secrets..."
+          CLEAN_STORE_PW="$(printf '%s' "$KEYSTORE_PASSWORD" | tr -d '\r\n')"
+          CLEAN_KEY_PW="$(printf '%s' "$KEY_PASSWORD" | tr -d '\r\n')"
+          CLEAN_ALIAS="$(printf '%s' "$KEY_ALIAS" | tr -d '\r\n')"
+          printf '%s' "$KEYSTORE_BASE64" | tr -d '\r\n ' | base64 --decode > android/app/upload-keystore.jks
+          cat <<EOF > android/key.properties
           storePassword=$CLEAN_STORE_PW
           keyPassword=$CLEAN_KEY_PW
           keyAlias=$CLEAN_ALIAS
           storeFile=upload-keystore.jks
           EOF
-            cat <<'JAVA' > /tmp/VerifyKeystore.java
+
+          cat <<'JAVA' > /tmp/VerifyKeystore.java
           import java.io.File;
           import java.io.FileInputStream;
+          import java.nio.charset.StandardCharsets;
+          import java.nio.file.Files;
+          import java.nio.file.Path;
           import java.security.Key;
           import java.security.KeyStore;
+          import java.security.MessageDigest;
+          import java.security.cert.Certificate;
           import java.util.Properties;
 
           public class VerifyKeystore {
@@ -83,22 +177,31 @@ jobs:
                 new File(args[0]),
                 props.getProperty("storePassword").toCharArray()
               );
-              Key key = ks.getKey(
-                props.getProperty("keyAlias"),
-                props.getProperty("keyPassword").toCharArray()
-              );
+              String alias = props.getProperty("keyAlias");
+              Key key = ks.getKey(alias, props.getProperty("keyPassword").toCharArray());
               if (key == null) {
                 throw new IllegalStateException("Key entry not found for alias");
               }
+              Certificate cert = ks.getCertificate(alias);
+              if (cert == null) {
+                throw new IllegalStateException("Certificate entry not found for alias");
+              }
+              byte[] digest = MessageDigest.getInstance("SHA-256").digest(cert.getEncoded());
+              StringBuilder hex = new StringBuilder(digest.length * 2);
+              for (byte b : digest) {
+                hex.append(String.format("%02x", b));
+              }
+              Files.writeString(Path.of(args[2]), hex.toString(), StandardCharsets.UTF_8);
               System.out.println("CI Keystore verified OK: " + ks.getType() + " / " + key.getAlgorithm());
             }
           }
           JAVA
-            java /tmp/VerifyKeystore.java android/app/upload-keystore.jks android/key.properties
-            rm -f /tmp/VerifyKeystore.java
-          else
-            echo "::warning::ANDROID_KEYSTORE_BASE64 not configured. Building with default debug signing config."
-          fi
+
+          java /tmp/VerifyKeystore.java android/app/upload-keystore.jks android/key.properties /tmp/signing_cert_sha256.txt
+          CERT_SHA256="$(cat /tmp/signing_cert_sha256.txt | tr -d '\r\n')"
+          rm -f /tmp/VerifyKeystore.java /tmp/signing_cert_sha256.txt
+          echo "cert_sha256=$CERT_SHA256" >> "$GITHUB_OUTPUT"
+          echo "Signing cert SHA-256 extracted (${CERT_SHA256:0:12}...)"
 
       - name: Build Split-per-ABI APKs (arm64-v8a, armeabi-v7a, x86_64)
         working-directory: apps/mobile
@@ -139,10 +242,11 @@ jobs:
           flutter build apk --release "${DART_DEFINES[@]}"
 
       - name: Rename and Organize Output APKs
+        env:
+          TAG: ${{ steps.resolve_tag.outputs.tag }}
         run: |
           mkdir -p dist/apks
           APK_DIR="apps/mobile/build/app/outputs/flutter-apk"
-          TAG="${{ github.ref_name }}"
           [ -f "$APK_DIR/app-release.apk" ] && cp "$APK_DIR/app-release.apk" "dist/apks/nexus-duo-${TAG}-universal.apk"
           [ -f "$APK_DIR/app-arm64-v8a-release.apk" ] && cp "$APK_DIR/app-arm64-v8a-release.apk" "dist/apks/nexus-duo-${TAG}-arm64-v8a.apk"
           [ -f "$APK_DIR/app-armeabi-v7a-release.apk" ] && cp "$APK_DIR/app-armeabi-v7a-release.apk" "dist/apks/nexus-duo-${TAG}-armeabi-v7a.apk"
@@ -150,27 +254,83 @@ jobs:
           ls -lh dist/apks/
           test -f "dist/apks/nexus-duo-${TAG}-universal.apk"
 
-      - name: Generate SHA256SUMS.txt for Artifacts
+      - name: Generate SHA256SUMS.txt & Canonical update-manifest.json
+        env:
+          TAG: ${{ steps.resolve_tag.outputs.tag }}
+          CERT_SHA256: ${{ steps.keystore.outputs.cert_sha256 }}
+          MIN_CODE: ${{ inputs.min_supported_version_code || 1 }}
+          FORCE_UPDATE: ${{ inputs.force_update || false }}
+          CUSTOM_NOTES: ${{ inputs.release_notes }}
         run: |
           node scripts/generate-sha256.mjs --dir dist/apks --write
+          node scripts/generate-update-manifest.mjs \
+            --dir dist/apks \
+            --tag "$TAG" \
+            --repo "${{ github.repository }}" \
+            --pubspec apps/mobile/pubspec.yaml \
+            --cert-sha256 "$CERT_SHA256" \
+            --min-supported-code "$MIN_CODE" \
+            --force-update "$FORCE_UPDATE" \
+            --notes "$CUSTOM_NOTES" \
+            --write
+          node scripts/generate-update-manifest.mjs --verify dist/apks/update-manifest.json --dir dist/apks
           cat dist/apks/SHA256SUMS.txt
+          cat dist/apks/update-manifest.json
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.resolve_tag.outputs.tag }}
           files: |
             dist/apks/*.apk
             dist/apks/SHA256SUMS.txt
+            dist/apks/update-manifest.json
           generate_release_notes: true
-          name: NEXUS DUO Release ${{ github.ref_name }}
+          name: NEXUS DUO Release ${{ steps.resolve_tag.outputs.tag }}
           body: |
-            ${{ github.event.inputs.release_notes || '🎮 NEXUS DUO — Match Gamer & Segundo Monitor Web' }}
+            ${{ inputs.release_notes || '🎮 NEXUS DUO — Match Gamer, Chat E2EE & Atualização Discreta In-App' }}
 
-            ### 🔐 Verificação de Integridade (SHA-256)
-            Todos os binários APK desta release têm seus hashes registrados em `SHA256SUMS.txt`.
-            Para validar no terminal:
+            ### 🔐 Verificação de Integridade (SHA-256 + APK Assinado)
+            Todos os binários APK desta release têm seus hashes registrados em `SHA256SUMS.txt` e no manifesto canônico `update-manifest.json`.
             ```bash
             sha256sum -c SHA256SUMS.txt
             ```
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync Supabase Release Channel (Optional & Idempotent)
+        continue-on-error: true
+        env:
+          SB_URL: ${{ secrets.SUPABASE_URL }}
+          SB_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          TAG: ${{ steps.resolve_tag.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ -z "$SB_URL" ] || [ -z "$SB_SERVICE_KEY" ]; then
+            echo "SUPABASE_SERVICE_ROLE_KEY not set; skipping automatic remote channel sync (Edge Function still reads CDN manifest)."
+            exit 0
+          fi
+
+          PAYLOAD=$(node -e '
+            const fs = require("fs");
+            const m = JSON.parse(fs.readFileSync("dist/apks/update-manifest.json", "utf8"));
+            console.log(JSON.stringify([{
+              channel: m.channel || "stable",
+              latest_version_name: m.version_name,
+              latest_version_code: m.version_code,
+              min_supported_version_code: m.min_supported_version_code,
+              force_update: m.force_update,
+              rollout_enabled: m.rollout_enabled ?? true,
+              manifest_url: `https://github.com/${process.env.REPO}/releases/latest/download/update-manifest.json`,
+              release_notes_pt_br: m.release_notes_pt_br,
+              updated_at: new Date().toISOString()
+            }]));
+          ')
+
+          curl -fsSL -X POST "${SB_URL}/rest/v1/app_release_channels" \
+            -H "apikey: ${SB_SERVICE_KEY}" \
+            -H "Authorization: Bearer ${SB_SERVICE_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: resolution=merge-duplicates" \
+            -d "$PAYLOAD"
+          echo "Supabase app_release_channels synced OK for $TAG."

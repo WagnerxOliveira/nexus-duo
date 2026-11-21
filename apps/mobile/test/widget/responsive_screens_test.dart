@@ -96,21 +96,22 @@ void main() {
 
   for (final vp in _viewports) {
     group('Responsive zero-overflow @ ${vp.name} (textScaleFactor: 1.3)', () {
-      testWidgets('LoginScreen renders cleanly with update pill', (
-        tester,
-      ) async {
-        await _pumpAndAssertZeroOverflow(
-          tester,
-          screen: const LoginScreen(),
-          viewport: vp.size,
-        );
-        expect(find.text('NEXUS DUO'), findsOneWidget);
-        expect(
-          find.byKey(const Key('nexus_update_pill_button')),
-          findsOneWidget,
-        );
-        expect(find.text('Entrar em Modo Demo Instantâneo'), findsOneWidget);
-      });
+      testWidgets(
+        'LoginScreen renders cleanly with zero-noise header when updated',
+        (tester) async {
+          await _pumpAndAssertZeroOverflow(
+            tester,
+            screen: const LoginScreen(),
+            viewport: vp.size,
+          );
+          expect(find.text('NEXUS DUO'), findsOneWidget);
+          expect(
+            find.byKey(const Key('nexus_update_pill_button')),
+            findsNothing,
+          );
+          expect(find.text('Entrar em Modo Demo Instantâneo'), findsOneWidget);
+        },
+      );
 
       testWidgets('RegisterScreen renders cleanly', (tester) async {
         await _pumpAndAssertZeroOverflow(

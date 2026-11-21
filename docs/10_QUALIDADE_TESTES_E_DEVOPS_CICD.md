@@ -57,32 +57,31 @@ flowchart LR
 - **Job 3 (`web-qa`):** `npm ci` -> `npm run lint` -> `npm run typecheck` -> `npm run test` -> `npm run build` -> `npx playwright test`.
 - **Job 4 (`db-security`):** Validação de sintaxe SQL + execução dos testes RLS `pgTAP` em Supabase local/container.
 
-### 3.2 `release-android.yml` (Build Automático de APK + GitHub Release)
-Disparado automaticamente ao criar uma tag semântica (`git tag v1.0.0 && git push --tags`) ou via `workflow_dispatch`:
-1. Configura Java 17 + Flutter `3.47.5` (estável).
-2. Injeta `android/key.properties` e keystore a partir dos **GitHub Secrets** (`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_PASSWORD`, `ANDROID_STORE_PASSWORD`, `ANDROID_KEY_ALIAS`) — nunca no código!
-3. Compila `flutter build apk --release --split-per-abi` (APKs leves por arquitetura `arm64-v8a` e `armeabi-v7a` + APK universal) — ou `shorebird release android` quando Shorebird estiver vinculado.
-4. Gera arquivo `SHA256SUMS.txt` com os hashes criptográficos de cada APK.
-5. Publica automaticamente a **GitHub Release** com changelog gerado pelos Conventional Commits, anexando os APKs e `SHA256SUMS.txt`.
+### 3.2 `auto-release-mobile.yml` & `release-android.yml` (Commit -> Push -> Release Automática)
+Todo `push` na branch `main` alterando `apps/mobile/**`, `packages/**` ou scripts de release dispara automaticamente:
+1. **Quality Gate (`auto-release-mobile.yml`):** valida testes dos scripts, auditoria SQL Zero-Trust, `dart format`, `flutter analyze` e `flutter test` antes de gerar versão (ignorando commits com `[skip release]` / `[skip ci]`).
+2. **Auto-Bump (`scripts/bump-mobile-version.mjs`):** analisa os *Conventional Commits* desde a última tag (`feat!:` -> major, `feat:` -> minor, `fix:`/`perf:` -> patch), incrementa `versionName` + `versionCode` de forma estritamente monotônica em `apps/mobile/pubspec.yaml` e cria a tag semântica `vX.Y.Z`.
+3. **Build Assinado Obrigatório (`release-android.yml`):** falha em *fail-fast* se o keystore PKCS12 (`ANDROID_KEYSTORE_BASE64`) estiver ausente, extrai o SHA-256 do certificado de assinatura X.509, compila APKs `--split-per-abi` (`arm64-v8a`, `armeabi-v7a`, `x86_64`) + `universal`, gera `SHA256SUMS.txt` e o manifesto canônico `update-manifest.json` (schema v2) e publica todos os ativos na **GitHub Release**.
 
-### 3.3 `patch-shorebird.yml` (Atualização OTA Instantânea para Mudanças em Dart)
-Quando há ajustes de UI, correções de bugs ou melhorias puramente em Dart (sem mudar dependências nativas Android):
-- Executa `shorebird patch android` (Free Tier: até **5.000 instalações de patch/mês** grátis).
-- Os celulares dos usuários baixam o diff binário silenciosamente e aplicam na próxima abertura do app!
+### 3.3 Estratégia Dual-Track: APK Self-Update vs. `patch-shorebird.yml` (OTA)
+- **Trilha Principal Soberana (100% Gratuita — APK Self-Update In-App):** padrão para **qualquer alteração** (Dart, Kotlin, AndroidManifest, ML Kit, ícones, assets ou plugins). Entrega APK assinado com o mesmo certificado via CDN direta do GitHub, sem limites de cota.
+- **Trilha Opcional Instantânea (`patch-shorebird.yml`):** reservada para hotfixes **exclusivamente em código Dart** (sem alterar dependências nativas), acionada manualmente quando `SHOREBIRD_TOKEN` estiver configurado (Free Tier: até **5.000 patches/mês**).
 
 ### 3.4 `deploy-web.yml` (Deploy Web Contínuo)
 - Merge na `main` dispara deploy automático da pasta `apps/web` na **Cloudflare Pages** ou **Vercel** com preview URLs por Pull Request.
 
 ---
 
-## 4. Arquitetura de Auto-Update Autônomo no Celular Android
+## 4. Arquitetura de Auto-Update Discreto In-App no Celular Android
 
-Para que **todo usuário com o APK instalado se atualize de forma autônoma** sempre que você fizer merge/release no GitHub:
+Para que **todo usuário com o APK instalado receba atualizações com 1 toque sem abrir navegador ou GitHub**:
 
-1. **Camada 1 — Patch Silencioso (Mudanças Dart):** **Shorebird OTA** atualiza o código Dart em segundos em segundo plano sem pedir reinstalação do APK.
-2. **Camada 2 — Atualização de Binário Base (Mudanças Nativas/Novas Versões):**
-   - Serviço `GitHubReleaseUpdater` no Flutter consulta (no máximo 1x a cada 6h, respeitando cache ETag para não bater rate limit da API pública do GitHub):
-     `GET https://api.github.com/repos/WagnerxOliveira/nexus-duo/releases/latest`
-   - Compara `tag_name` (`SemVer`) com `PackageInfo.fromPlatform().version`.
-   - Se houver versão mais nova, exibe um modal elegante *Cyber-Velvet* com as novidades da versão (*Release Notes*) e botão **"Atualizar Agora"**.
-   - Faz o download com barra de progresso, **verifica o hash `SHA-256` contra `SHA256SUMS.txt` da mesma release** (bloqueando qualquer APK corrompido ou adulterado!) e aciona o instalador nativo Android via `FileProvider` (`REQUEST_INSTALL_PACKAGES`).
+1. **Manifesto CDN Zero-Rate-Limit (`update-manifest.json`) + Edge Function (`app-update-manifest`):**
+   - O app consulta primeiro `https://github.com/WagnerxOliveira/nexus-duo/releases/latest/download/update-manifest.json` (download direto via CDN com suporte a `ETag` — **imune ao limite de 60 req/h por IP da API REST do GitHub em CGNAT móvel**).
+   - Fallback cacheado e controle remoto via Supabase Edge Function `app-update-manifest` (`Cache-Control: public, max-age=120`) combinada com a tabela RLS `app_release_channels` (*kill-switch* de rollout e `force_update` para correções críticas).
+2. **Ciclo de Vida Automático (`AppLifecycleState.resumed`):**
+   - Ao voltar dos Ajustes do Android após liberar *"Instalar apps desconhecidos"*, o app detecta a permissão e **abre o instalador nativo automaticamente sem cliques extras**.
+   - Re-checa silenciosamente o manifesto se o app ficou em segundo plano por `>= 15 min` e limpa APKs antigos do cache (`cleanupStaleApks`).
+3. **Integridade Criptográfica Multicamada + UX Discreta *Cyber-Velvet*:**
+   - Allowlist estrita de URLs HTTPS (`github.com` / `githubusercontent.com`), checagem prévia de espaço livre (`StatFs`), streaming `.part` com retomada `HTTP 206 Range` e backoff, verificação incremental `SHA-256` e validação nativa em `MainActivity.kt` (`packageName`, `versionCode` estritamente maior e fingerprint do certificado de assinatura).
+   - **Zero poluição visual quando atualizado:** a pílula discreta **`Atualizar`** aparece suavemente apenas quando há nova versão (com opção **"Lembrar depois"** por 24h e **"Minimizar"** download em andamento).

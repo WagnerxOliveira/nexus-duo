@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexusduo.app/contracts/update_manifest.schema.json",
+  "title": "NEXUS DUO In-App Self-Update Manifest v2",
+  "description": "Canonical manifest published alongside signed Android APKs in GitHub Releases and cached via Supabase Edge Functions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "app_id",
+    "channel",
+    "version_name",
+    "version_code",
+    "min_supported_version_code",
+    "force_update",
+    "published_at",
+    "signing_cert_sha256",
+    "release_url",
+    "release_notes_pt_br",
+    "apks"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "app_id": {
+      "const": "com.nexusduo.app"
+    },
+    "channel": {
+      "type": "string",
+      "enum": ["stable", "beta"]
+    },
+    "version_name": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "version_code": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "min_supported_version_code": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "force_update": {
+      "type": "boolean"
+    },
+    "rollout_enabled": {
+      "type": "boolean",
+      "default": true
+    },
+    "published_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "signing_cert_sha256": {
+      "type": "string",
+      "pattern": "^(|[a-f0-9]{64})$"
+    },
+    "release_url": {
+      "type": "string",
+      "pattern": "^https://github\\.com/[^/]+/[^/]+/releases/"
+    },
+    "release_notes_pt_br": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "apks": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "arm64-v8a": { "$ref": "#/$defs/apkAsset" },
+        "armeabi-v7a": { "$ref": "#/$defs/apkAsset" },
+        "x86_64": { "$ref": "#/$defs/apkAsset" },
+        "universal": { "$ref": "#/$defs/apkAsset" }
+      }
+    }
+  },
+  "$defs": {
+    "apkAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file_name", "url", "sha256", "size_bytes"],
+      "properties": {
+        "file_name": {
+          "type": "string",
+          "pattern": "\\.apk$"
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https://(github\\.com|objects\\.githubusercontent\\.com|release-assets\\.githubusercontent\\.com)/.+"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}

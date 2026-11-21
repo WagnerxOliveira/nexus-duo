@@ -131,3 +131,6 @@ verify_jwt = false
 
 [functions.auth-reset-password]
 verify_jwt = false
+
+[functions.app-update-manifest]
+verify_jwt = false

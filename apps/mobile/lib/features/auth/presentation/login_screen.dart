@@ -8,7 +8,6 @@ import 'package:supabase_flutter/supabase_flutter.dart' show AuthChangeEvent;
 
 import '../../../core/providers/app_providers.dart';
 import '../../../core/widgets/nexus_ui_kit.dart';
-import '../../../core/widgets/nexus_update_widgets.dart';
 import '../../shared/domain/nexus_repositories.dart';
 import 'email_otp_verification_screen.dart';
 import 'widgets/auth_scaffold_shell.dart';
@@ -258,7 +257,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          const NexusUpdateSpotlightCard(),
           Wrap(
             spacing: NexusSpacing.sm,
             runSpacing: NexusSpacing.sm,
@@ -526,11 +524,15 @@ class _TrustPill extends StatelessWidget {
         children: <Widget>[
           Icon(icon, size: 14, color: color),
           const SizedBox(width: 6),
-          Text(
-            label,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: NexusColors.textPrimary,
-              fontSize: 12,
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: NexusColors.textPrimary,
+                fontSize: 12,
+              ),
             ),
           ),
         ],

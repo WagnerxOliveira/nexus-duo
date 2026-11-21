@@ -84,7 +84,7 @@ class AuthScaffoldShell extends StatelessWidget {
                             ],
                           ),
                           if (showUpdateButton)
-                            const NexusUpdatePillButton(compact: true),
+                            const NexusDiscreetUpdatePill(compact: true),
                         ],
                       ),
                       const SizedBox(height: NexusSpacing.lg),
