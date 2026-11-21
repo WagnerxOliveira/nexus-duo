@@ -9,8 +9,9 @@ import 'package:nexus_design_tokens/nexus_tokens.dart';
 
 import '../../../core/providers/app_providers.dart';
 import '../../../core/theme/nexus_theme.dart';
-import '../../../core/updater/github_release_updater.dart';
+import '../../../core/updater/app_update_controller.dart';
 import '../../../core/widgets/nexus_ui_kit.dart';
+import '../../../core/widgets/nexus_update_widgets.dart';
 import '../domain/gamer_profile.dart';
 
 /// Screen 7 — Perfil & Gamer DNA Shareable Card (`9:16` via `RepaintBoundary`)
@@ -25,11 +26,6 @@ class ProfileScreen extends ConsumerStatefulWidget {
 
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   final GlobalKey _shareCardKey = GlobalKey();
-  ReleaseUpdateInfo? _updateInfo;
-  String? _updateStatus;
-  bool _checkingUpdate = false;
-  bool _isDownloadingUpdate = false;
-  double _downloadProgress = 0.0;
   bool _exportingCard = false;
 
   Future<void> _exportShareableCard() async {
@@ -55,70 +51,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     } finally {
       if (mounted) setState(() => _exportingCard = false);
     }
-  }
-
-  Future<void> _checkUpdates() async {
-    setState(() {
-      _checkingUpdate = true;
-      _updateStatus = null;
-    });
-    final res = await ref
-        .read(releaseUpdaterProvider)
-        .checkForUpdate(force: true);
-    if (!mounted) return;
-    setState(() {
-      _checkingUpdate = false;
-      res.fold(
-        onSuccess: (info) {
-          _updateInfo = info;
-          _updateStatus = info.hasUpdate
-              ? 'Nova versão v${info.latestVersion} disponível (SHA-256 verificado)!'
-              : 'Você está na versão mais recente (v${info.currentVersion}).';
-        },
-        onFailure: (failure) => _updateStatus = failure.message,
-      );
-    });
-  }
-
-  Future<void> _downloadAndInstallUpdate() async {
-    final info = _updateInfo;
-    if (info == null || !info.hasUpdate) return;
-    setState(() {
-      _isDownloadingUpdate = true;
-      _downloadProgress = 0.05;
-      _updateStatus = 'Baixando APK e validando SHA-256...';
-    });
-
-    final updater = ref.read(releaseUpdaterProvider);
-    final downloadRes = await updater.downloadAndVerifyApk(
-      info,
-      onProgress: (p) {
-        if (mounted) setState(() => _downloadProgress = p);
-      },
-    );
-
-    if (!mounted) return;
-    await downloadRes.fold(
-      onSuccess: (apkFile) async {
-        final installRes = await updater.triggerAndroidInstall(apkFile);
-        if (!mounted) return;
-        setState(() {
-          _isDownloadingUpdate = false;
-          _updateStatus = installRes.fold(
-            onSuccess: (launched) => launched
-                ? 'SHA-256 verificado! Instalador Android acionado.'
-                : 'APK validado em ${apkFile.path}.',
-            onFailure: (f) => f.message,
-          );
-        });
-      },
-      onFailure: (failure) async {
-        setState(() {
-          _isDownloadingUpdate = false;
-          _updateStatus = failure.message;
-        });
-      },
-    );
   }
 
   Future<void> _exportLgpdJson() async {
@@ -187,12 +119,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     if (confirmed != true) return;
     await ref.read(profileRepositoryProvider).deleteMyAccount();
     ref.read(authSessionProvider.notifier).state = null;
-    if (mounted) context.go('/welcome');
+    if (mounted) context.go('/login');
   }
 
   @override
   Widget build(BuildContext context) {
     final profile = ref.watch(myProfileProvider);
+    final updateState = ref.watch(appUpdateControllerProvider);
+    final updateController = ref.read(appUpdateControllerProvider.notifier);
     final width = MediaQuery.sizeOf(context).width;
     final pad = width < NexusBreakpoints.mobileCompactMax
         ? NexusSpacing.pageCompact
@@ -314,6 +248,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
                 // Autonomous GitHub Releases Updater + Shorebird OTA
                 NexusGlassCard(
+                  glow: updateState.hasUpdate,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
@@ -326,7 +261,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           const SizedBox(width: NexusSpacing.sm),
                           Expanded(
                             child: Text(
-                              'Atualizações Autônomas (GitHub + OTA)',
+                              'Atualizações Autônomas (v${updateState.currentVersion})',
                               style: Theme.of(context).textTheme.titleLarge,
                             ),
                           ),
@@ -334,51 +269,51 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       ),
                       const SizedBox(height: NexusSpacing.xs),
                       Text(
-                        'Repositório: WagnerxOliveira/nexus-duo • Verificação obrigatória SHA-256 + Shorebird OTA.',
+                        'Repositório: WagnerxOliveira/nexus-duo • Verificação obrigatória SHA-256 + permissão Android guiada.',
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
                       const SizedBox(height: NexusSpacing.md),
-                      OutlinedButton.icon(
-                        onPressed: _checkingUpdate ? null : _checkUpdates,
-                        icon: _checkingUpdate
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.refresh_rounded),
-                        label: const Text('Verificar Nova Release no GitHub'),
+                      Wrap(
+                        spacing: NexusSpacing.sm,
+                        runSpacing: NexusSpacing.sm,
+                        children: <Widget>[
+                          OutlinedButton.icon(
+                            onPressed: updateState.isBusy
+                                ? null
+                                : () => updateController.checkForUpdates(
+                                    force: true,
+                                  ),
+                            icon: updateState.status == AppUpdateStatus.checking
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.refresh_rounded),
+                            label: const Text('Verificar Nova Release'),
+                          ),
+                          NexusGradientButton(
+                            label: updateState.hasUpdate
+                                ? 'Atualizar v${updateState.info!.latestVersion}'
+                                : 'Abrir Central de Atualização',
+                            icon: Icons.rocket_launch_rounded,
+                            onPressed: () =>
+                                showNexusUpdateCenterSheet(context),
+                          ),
+                        ],
                       ),
-                      if (_updateStatus != null) ...<Widget>[
+                      if (updateState.statusMessage != null) ...<Widget>[
                         const SizedBox(height: NexusSpacing.sm),
                         Text(
-                          _updateStatus!,
+                          updateState.statusMessage!,
                           style: TextStyle(
-                            color: (_updateInfo?.hasUpdate ?? false)
+                            color: updateState.hasUpdate
                                 ? NexusColors.semanticSuccess
                                 : NexusColors.textSecondary,
                             fontWeight: FontWeight.w600,
                           ),
-                        ),
-                      ],
-                      if (_isDownloadingUpdate) ...<Widget>[
-                        const SizedBox(height: NexusSpacing.sm),
-                        LinearProgressIndicator(
-                          value: _downloadProgress,
-                          color: NexusColors.accentCyber,
-                          backgroundColor: NexusColors.bgElevated,
-                        ),
-                      ],
-                      if ((_updateInfo?.hasUpdate ?? false) &&
-                          !_isDownloadingUpdate) ...<Widget>[
-                        const SizedBox(height: NexusSpacing.md),
-                        NexusGradientButton(
-                          label:
-                              'Baixar e Instalar v${_updateInfo!.latestVersion} (SHA-256)',
-                          icon: Icons.download_for_offline_rounded,
-                          onPressed: _downloadAndInstallUpdate,
                         ),
                       ],
                     ],
@@ -391,7 +326,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     ref.read(runtimeDemoOverrideProvider.notifier).state =
                         false;
                     ref.read(authSessionProvider.notifier).state = null;
-                    if (context.mounted) context.go('/welcome');
+                    if (context.mounted) context.go('/login');
                   },
                   icon: const Icon(Icons.logout_rounded),
                   label: const Text('Sair da conta'),

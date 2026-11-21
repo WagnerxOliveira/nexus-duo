@@ -5,11 +5,17 @@ import 'package:nexus_duo/core/providers/app_providers.dart';
 import 'package:nexus_duo/core/router/app_shell.dart';
 import 'package:nexus_duo/core/theme/nexus_theme.dart';
 import 'package:nexus_duo/core/widgets/nexus_ui_kit.dart';
-import 'package:nexus_duo/features/auth/presentation/welcome_screen.dart';
+import 'package:nexus_duo/features/auth/presentation/email_otp_verification_screen.dart';
+import 'package:nexus_duo/features/auth/presentation/forgot_password_screen.dart';
+import 'package:nexus_duo/features/auth/presentation/login_screen.dart';
+import 'package:nexus_duo/features/auth/presentation/register_screen.dart';
+import 'package:nexus_duo/features/auth/presentation/reset_password_screen.dart';
 import 'package:nexus_duo/features/chat/presentation/chat_screen.dart';
 import 'package:nexus_duo/features/discovery/presentation/match_celebration_screen.dart';
+import 'package:nexus_duo/features/legal/presentation/legal_terms_screen.dart';
 import 'package:nexus_duo/features/onboarding/presentation/onboarding_screen.dart';
 import 'package:nexus_duo/features/shared/data/demo_seed_repositories.dart';
+import 'package:nexus_duo/features/shared/domain/nexus_repositories.dart';
 
 const List<({String name, Size size})> _viewports =
     <({String name, Size size})>[
@@ -36,6 +42,9 @@ Future<void> _pumpAndAssertZeroOverflow(
   try {
     await tester.pumpWidget(
       ProviderScope(
+        overrides: <Override>[
+          autoCheckUpdatesOnLaunchProvider.overrideWithValue(false),
+        ],
         child: MaterialApp(
           theme: NexusTheme.dark(),
           builder: (context, child) => MediaQuery(
@@ -87,14 +96,77 @@ void main() {
 
   for (final vp in _viewports) {
     group('Responsive zero-overflow @ ${vp.name} (textScaleFactor: 1.3)', () {
-      testWidgets('WelcomeScreen renders cleanly', (tester) async {
+      testWidgets('LoginScreen renders cleanly with update pill', (
+        tester,
+      ) async {
         await _pumpAndAssertZeroOverflow(
           tester,
-          screen: const WelcomeScreen(),
+          screen: const LoginScreen(),
           viewport: vp.size,
         );
         expect(find.text('NEXUS DUO'), findsOneWidget);
+        expect(
+          find.byKey(const Key('nexus_update_pill_button')),
+          findsOneWidget,
+        );
         expect(find.text('Entrar em Modo Demo Instantâneo'), findsOneWidget);
+      });
+
+      testWidgets('RegisterScreen renders cleanly', (tester) async {
+        await _pumpAndAssertZeroOverflow(
+          tester,
+          screen: const RegisterScreen(),
+          viewport: vp.size,
+        );
+        expect(find.text('Criar Conta NEXUS DUO'), findsOneWidget);
+      });
+
+      testWidgets('LegalTermsScreen renders cleanly', (tester) async {
+        await _pumpAndAssertZeroOverflow(
+          tester,
+          screen: const LegalTermsScreen(),
+          viewport: vp.size,
+        );
+        expect(find.text('Termos, LGPD & Segurança'), findsOneWidget);
+      });
+
+      testWidgets('EmailOtpVerificationScreen renders cleanly', (tester) async {
+        await _pumpAndAssertZeroOverflow(
+          tester,
+          screen: const EmailOtpVerificationScreen(
+            args: OtpFlowArgs(
+              email: 'player@nexusduo.app',
+              maskedEmail: 'p***r@nexusduo.app',
+              purpose: OtpPurpose.signupVerify,
+              initialCooldownSeconds: 0,
+            ),
+          ),
+          viewport: vp.size,
+        );
+        expect(find.text('Verifique seu E-mail'), findsOneWidget);
+      });
+
+      testWidgets('ForgotPasswordScreen & ResetPasswordScreen render cleanly', (
+        tester,
+      ) async {
+        await _pumpAndAssertZeroOverflow(
+          tester,
+          screen: const ForgotPasswordScreen(),
+          viewport: vp.size,
+        );
+        expect(find.text('Esqueci a minha senha'), findsOneWidget);
+
+        await _pumpAndAssertZeroOverflow(
+          tester,
+          screen: const ResetPasswordScreen(
+            args: ResetPasswordArgs(
+              email: 'player@nexusduo.app',
+              resetToken: 'demo-token-12345678901234567890',
+            ),
+          ),
+          viewport: vp.size,
+        );
+        expect(find.text('Definir Nova Senha'), findsOneWidget);
       });
 
       testWidgets('OnboardingScreen renders cleanly', (tester) async {
@@ -169,7 +241,11 @@ void main() {
   testWidgets('ChatScreen encrypts and appends new message via DemoSeed E2EE', (
     tester,
   ) async {
-    final container = ProviderContainer();
+    final container = ProviderContainer(
+      overrides: <Override>[
+        autoCheckUpdatesOnLaunchProvider.overrideWithValue(false),
+      ],
+    );
     addTearDown(container.dispose);
     final match = container.read(demoSeedStoreProvider).matches.first;
 

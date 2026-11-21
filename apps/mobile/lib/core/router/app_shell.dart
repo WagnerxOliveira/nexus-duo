@@ -6,6 +6,7 @@ import '../../features/discovery/presentation/discovery_screen.dart';
 import '../../features/lobby/presentation/lobby_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../widgets/nexus_ui_kit.dart';
+import '../widgets/nexus_update_widgets.dart';
 
 /// Responsive application shell adapting cleanly between:
 /// - `< 600px`: Bottom Navigation Bar (4 tabs, Thumb Zone)
@@ -78,14 +79,56 @@ class _NexusAppShellState extends State<NexusAppShell> {
               ],
             ),
             const VerticalDivider(width: 1),
-            Expanded(child: _pages[_currentIndex]),
+            Expanded(
+              child: Column(
+                children: <Widget>[
+                  const SafeArea(
+                    bottom: false,
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        NexusSpacing.md,
+                        NexusSpacing.xs,
+                        NexusSpacing.md,
+                        NexusSpacing.xs,
+                      ),
+                      child: Row(
+                        children: <Widget>[Spacer(), NexusUpdatePillButton()],
+                      ),
+                    ),
+                  ),
+                  Expanded(child: _pages[_currentIndex]),
+                ],
+              ),
+            ),
           ],
         ),
       );
     }
 
     return Scaffold(
-      body: _pages[_currentIndex],
+      body: Column(
+        children: <Widget>[
+          const SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                NexusSpacing.md,
+                NexusSpacing.xs,
+                NexusSpacing.md,
+                NexusSpacing.xs,
+              ),
+              child: Row(
+                children: <Widget>[
+                  Expanded(child: NexusBrandLogo(compact: true)),
+                  SizedBox(width: NexusSpacing.sm),
+                  NexusUpdatePillButton(compact: true),
+                ],
+              ),
+            ),
+          ),
+          Expanded(child: _pages[_currentIndex]),
+        ],
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         backgroundColor: NexusColors.bgSurface,

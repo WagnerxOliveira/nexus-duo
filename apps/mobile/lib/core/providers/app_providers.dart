@@ -11,10 +11,21 @@ import '../../features/shared/domain/nexus_repositories.dart';
 import '../config/app_config.dart';
 import '../crypto/e2ee_cipher.dart';
 import '../crypto/flutter_secure_key_vault.dart';
+import '../updater/app_update_controller.dart';
 import '../updater/github_release_updater.dart';
 
 final appConfigProvider = Provider<AppConfig>((ref) {
   return AppConfig.fromEnvironment();
+});
+
+final supabaseClientOrNullProvider = Provider<sb.SupabaseClient?>((ref) {
+  final config = ref.watch(appConfigProvider);
+  if (!config.isSupabaseConfigured) return null;
+  try {
+    return sb.Supabase.instance.client;
+  } catch (_) {
+    return null;
+  }
 });
 
 /// Allows users on cloud-configured APKs to explore Demo Mode at runtime.
@@ -92,6 +103,17 @@ final releaseUpdaterProvider = Provider<GitHubReleaseUpdater>((ref) {
   final config = ref.watch(appConfigProvider);
   return GitHubReleaseUpdater(repository: config.githubReleasesRepo);
 });
+
+final autoCheckUpdatesOnLaunchProvider = Provider<bool>((ref) => true);
+
+final appUpdateControllerProvider =
+    StateNotifierProvider<AppUpdateController, AppUpdateState>((ref) {
+      final controller = AppUpdateController(ref.watch(releaseUpdaterProvider));
+      controller.initializeAndAutoCheck(
+        autoCheck: ref.watch(autoCheckUpdatesOnLaunchProvider),
+      );
+      return controller;
+    });
 
 final authSessionProvider = StateProvider<AuthSession?>((ref) => null);
 
