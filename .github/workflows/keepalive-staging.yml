@@ -21,12 +21,11 @@ jobs:
             exit 0
           fi
 
-          TARGET_URL="${SUPABASE_URL%/}/rest/v1/"
-          echo "Pinging Supabase REST endpoint: $TARGET_URL"
+          TARGET_URL="${SUPABASE_URL%/}/functions/v1/health"
+          echo "Pinging Supabase Edge Health endpoint: $TARGET_URL"
 
           HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "apikey: $SUPABASE_ANON_KEY" \
-            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
             "$TARGET_URL" || echo "000")
 
           echo "Response HTTP Status: $HTTP_STATUS"

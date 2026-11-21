@@ -1,9 +1,12 @@
+import 'dart:typed_data';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/crypto/e2ee_cipher.dart';
 import '../../../core/domain/value_objects/gamer_age.dart';
 import '../../../core/domain/value_objects/weekly_schedule_mask.dart';
 import '../../../core/errors/app_failure.dart';
+import '../../../core/media/avatar_photo_sanitizer.dart';
 import '../../chat/domain/chat_message.dart';
 import '../../discovery/domain/discovery_entities.dart';
 import '../../discovery/domain/match_scoring_strategy.dart';
@@ -115,10 +118,15 @@ class SupabaseAuthRepository implements IAuthRepository {
 
 /// Production Supabase Profile & LGPD repository.
 class SupabaseProfileRepository implements IProfileRepository {
-  SupabaseProfileRepository(this._client, this._cipher);
+  SupabaseProfileRepository(
+    this._client,
+    this._cipher, {
+    AvatarPhotoSanitizer sanitizer = const AvatarPhotoSanitizer(),
+  }) : _sanitizer = sanitizer;
 
   final SupabaseClient _client;
   final IMessageCipher _cipher;
+  final AvatarPhotoSanitizer _sanitizer;
 
   @override
   Future<Result<GamerProfile>> getMyProfile() async {
@@ -270,12 +278,79 @@ class SupabaseProfileRepository implements IProfileRepository {
   @override
   Future<Result<void>> deleteMyAccount() async {
     try {
-      await _client.rpc<void>('delete_my_account');
+      final res = await _client.functions.invoke('delete-account');
+      if (res.status >= 400) {
+        return FailureResult<void>(
+          NetworkFailure('Falha ao excluir conta LGPD (HTTP ${res.status}).'),
+        );
+      }
       await _client.auth.signOut();
       return const Success<void>(null);
     } catch (e) {
       return FailureResult<void>(
         NetworkFailure('Falha ao excluir conta LGPD: $e'),
+      );
+    }
+  }
+
+  @override
+  Future<Result<String>> uploadSanitizedAvatar({
+    required Uint8List rawBytes,
+    required String fileName,
+    int position = 0,
+    bool isPrimary = true,
+  }) async {
+    try {
+      final uid = _client.auth.currentUser?.id;
+      if (uid == null) {
+        return const FailureResult<String>(
+          AuthFailure('Usuário não autenticado para upload de foto.'),
+        );
+      }
+
+      final sanitizedRes = _sanitizer.sanitize(rawBytes);
+      final sanitized = sanitizedRes.valueOrNull;
+      if (sanitized == null) {
+        return FailureResult<String>(
+          sanitizedRes.failureOrNull ??
+              const ValidationFailure('Falha ao sanitizar foto de perfil.'),
+        );
+      }
+
+      final safeStem = fileName
+          .replaceAll(RegExp(r'\.[^.]+$'), '')
+          .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+      final storagePath =
+          '$uid/${DateTime.now().millisecondsSinceEpoch}_$safeStem.${sanitized.format.extension}';
+
+      await _client.storage
+          .from('avatars')
+          .uploadBinary(
+            storagePath,
+            sanitized.bytes,
+            fileOptions: FileOptions(
+              contentType: sanitized.format.mimeType,
+              upsert: true,
+            ),
+          );
+
+      await _client.from('profile_photos').insert(<String, dynamic>{
+        'user_id': uid,
+        'storage_path': storagePath,
+        'position': position,
+        'is_primary': isPrimary,
+      });
+
+      return Success<String>(storagePath);
+    } on StorageException catch (e) {
+      return FailureResult<String>(NetworkFailure(e.message));
+    } on PostgrestException catch (e) {
+      return FailureResult<String>(
+        RlsPermissionFailure(e.message, code: e.code),
+      );
+    } catch (e) {
+      return FailureResult<String>(
+        NetworkFailure('Erro ao enviar avatar sanitizado: $e'),
       );
     }
   }
@@ -331,22 +406,37 @@ class SupabaseDiscoveryRepository implements IDiscoveryRepository {
         SwipeAction.pass => 'pass',
         SwipeAction.superDuo => 'super_duo',
       };
-      await _client.from('swipes').insert(<String, dynamic>{
-        'actor_id': me.id,
-        'target_id': candidate.profile.id,
-        'action': actionName,
-        'intro_note': introNote,
-      });
-
-      final matchesRes = await fetchMatches();
-      final matched = matchesRes.valueOrNull?.where(
-        (m) => m.peer.id == candidate.profile.id,
+      final rawPayload = await _client.rpc<Map<String, dynamic>>(
+        'record_swipe_and_match',
+        params: <String, dynamic>{
+          'p_target_id': candidate.profile.id,
+          'p_action': actionName,
+          'p_intro_note': introNote,
+        },
       );
+
+      final parsed = AvatarPhotoSanitizer.parseSwipeAndMatchResponse(
+        rawPayload,
+        fallbackScore: candidate.breakdown.totalScorePercent,
+      );
+      if (!parsed.matched || parsed.matchId == null) {
+        return const Success<DuoMatch?>(null);
+      }
+
       return Success<DuoMatch?>(
-        (matched != null && matched.isNotEmpty) ? matched.first : null,
+        DuoMatch(
+          id: parsed.matchId!,
+          peer: candidate.profile,
+          compatibilityScore: parsed.compatibilityScore,
+          commonHoursPerWeek: candidate.breakdown.commonHoursPerWeek,
+          icebreakerPrompts: parsed.icebreakers,
+          createdAt: DateTime.now(),
+        ),
       );
     } on PostgrestException catch (e) {
-      return FailureResult<DuoMatch?>(RlsPermissionFailure(e.message));
+      return FailureResult<DuoMatch?>(
+        RlsPermissionFailure(e.message, code: e.code),
+      );
     } catch (e) {
       return FailureResult<DuoMatch?>(
         NetworkFailure('Erro ao registrar swipe: $e'),
@@ -392,11 +482,9 @@ class SupabaseDiscoveryRepository implements IDiscoveryRepository {
             compatibilityScore:
                 (raw['compatibility_score'] as num?)?.toInt() ?? 85,
             commonHoursPerWeek: 6,
-            icebreakerPrompts:
-                (raw['icebreaker_prompts'] as List<dynamic>? ??
-                        const <dynamic>[])
-                    .map((e) => e.toString())
-                    .toList(),
+            icebreakerPrompts: AvatarPhotoSanitizer.extractIcebreakerPrompts(
+              raw['icebreaker_prompts'],
+            ),
             createdAt:
                 DateTime.tryParse(raw['created_at'] as String? ?? '') ??
                 DateTime.now(),
@@ -710,13 +798,16 @@ ChatMessageType _parseMessageType(String? raw) {
 }
 
 GamerProfile _mapProfileRow(Map<String, dynamic> row) {
+  final ageYears = (row['age_years'] as num?)?.toInt();
   final birthRaw = row['birth_date'] as String?;
   final birthDate = birthRaw != null
       ? DateTime.tryParse(birthRaw) ?? DateTime(2000)
       : DateTime(2000);
-  final age =
-      GamerAge.fromBirthDate(birthDate).valueOrNull ??
-      GamerAge.fromYears(22).valueOrNull!;
+  final age = ageYears != null
+      ? (GamerAge.fromYears(ageYears).valueOrNull ??
+            GamerAge.fromYears(22).valueOrNull!)
+      : (GamerAge.fromBirthDate(birthDate).valueOrNull ??
+            GamerAge.fromYears(22).valueOrNull!);
   final maskRaw =
       (row['schedule_mask'] as List<dynamic>? ?? const <dynamic>[0, 0, 0])
           .map((e) => (e as num).toInt())
@@ -728,7 +819,7 @@ GamerProfile _mapProfileRow(Map<String, dynamic> row) {
       (row['gamer_dna'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
 
   return GamerProfile(
-    id: row['id'] as String,
+    id: ((row['id'] ?? row['profile_id']) as String),
     username: (row['username'] as String?) ?? 'player',
     displayName: (row['display_name'] as String?) ?? 'Player',
     age: age,
