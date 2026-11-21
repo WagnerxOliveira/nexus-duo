@@ -23,12 +23,67 @@ class AuthSession {
   final bool hasCompletedOnboarding;
 }
 
+enum AccountLookupStatus { notFound, unverified, active }
+
+enum OtpPurpose {
+  signupVerify('signup_verify'),
+  passwordReset('password_reset');
+
+  const OtpPurpose(this.apiValue);
+  final String apiValue;
+}
+
+class OtpDispatchInfo {
+  const OtpDispatchInfo({
+    required this.maskedEmail,
+    required this.expiresInSeconds,
+    required this.cooldownSeconds,
+    this.demoCodeHint,
+  });
+
+  final String maskedEmail;
+  final int expiresInSeconds;
+  final int cooldownSeconds;
+  final String? demoCodeHint;
+}
+
+class OtpVerifyResult {
+  const OtpVerifyResult({required this.verified, this.resetToken});
+
+  final bool verified;
+  final String? resetToken;
+}
+
 abstract interface class IAuthRepository {
   Future<AuthSession?> currentSession();
   Future<Result<AuthSession>> signInWithDiscord();
+  Future<Result<AccountLookupStatus>> checkAccountStatus(String email);
   Future<Result<AuthSession>> signInWithEmail({
     required String email,
     required String password,
+  });
+  Future<Result<OtpDispatchInfo>> startEmailRegistration({
+    required String email,
+    required String confirmEmail,
+    required String password,
+    required String confirmPassword,
+    required bool acceptTerms,
+    required bool confirmAge18Plus,
+    required String termsVersion,
+    required String privacyVersion,
+    required String appVersion,
+  });
+  Future<Result<OtpDispatchInfo>> requestPasswordResetOtp(String email);
+  Future<Result<OtpVerifyResult>> verifyEmailOtp({
+    required String email,
+    required String code,
+    required OtpPurpose purpose,
+  });
+  Future<Result<void>> completePasswordReset({
+    required String email,
+    required String resetToken,
+    required String newPassword,
+    required String confirmPassword,
   });
   Future<Result<AuthSession>> signUpWithEmail({
     required String email,

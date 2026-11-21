@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -66,6 +67,74 @@ class SupabaseAuthRepository implements IAuthRepository {
     }
   }
 
+  AppFailure _mapFunctionFailure(FunctionException error) {
+    Map<String, dynamic>? payload;
+    final details = error.details;
+    if (details is Map<String, dynamic>) {
+      payload = details;
+    } else if (details is Map) {
+      payload = Map<String, dynamic>.from(details);
+    } else if (details is String && details.trim().startsWith('{')) {
+      try {
+        final decoded = jsonDecode(details);
+        if (decoded is Map) {
+          payload = Map<String, dynamic>.from(decoded);
+        }
+      } catch (_) {}
+    }
+
+    final code =
+        (payload?['code'] as String?) ?? 'FUNCTION_HTTP_${error.status}';
+    final msg =
+        (payload?['message'] as String?) ??
+        error.reasonPhrase ??
+        'Falha na comunicação segura com o servidor.';
+
+    if (code == 'PASSWORD_POLICY_VIOLATION' ||
+        code == 'INVALID_EMAIL' ||
+        code == 'EMAIL_MISMATCH' ||
+        code == 'PASSWORD_MISMATCH' ||
+        code == 'LEGAL_CONSENT_REQUIRED' ||
+        code == 'OTP_INVALID_FORMAT') {
+      return ValidationFailure(msg, code: code);
+    }
+    return AuthFailure(msg, code: code);
+  }
+
+  Map<String, dynamic> _asMap(dynamic data) {
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    if (data is String && data.trim().startsWith('{')) {
+      final decoded = jsonDecode(data);
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    }
+    return const <String, dynamic>{};
+  }
+
+  @override
+  Future<Result<AccountLookupStatus>> checkAccountStatus(String email) async {
+    try {
+      final res = await _client.functions.invoke(
+        'auth-account-status',
+        body: <String, dynamic>{'email': email.trim().toLowerCase()},
+      );
+      final map = _asMap(res.data);
+      final statusStr = map['status'] as String?;
+      final status = switch (statusStr) {
+        'active' => AccountLookupStatus.active,
+        'unverified' => AccountLookupStatus.unverified,
+        _ => AccountLookupStatus.notFound,
+      };
+      return Success<AccountLookupStatus>(status);
+    } on FunctionException catch (e) {
+      return FailureResult<AccountLookupStatus>(_mapFunctionFailure(e));
+    } catch (e) {
+      return FailureResult<AccountLookupStatus>(
+        NetworkFailure('Não foi possível consultar sua conta: $e'),
+      );
+    }
+  }
+
   @override
   Future<Result<AuthSession>> signInWithEmail({
     required String email,
@@ -73,13 +142,13 @@ class SupabaseAuthRepository implements IAuthRepository {
   }) async {
     try {
       final res = await _client.auth.signInWithPassword(
-        email: email.trim(),
+        email: email.trim().toLowerCase(),
         password: password,
       );
       final user = res.user;
       if (user == null) {
         return const FailureResult<AuthSession>(
-          AuthFailure('Credenciais inválidas.'),
+          AuthFailure('Credenciais inválidas.', code: 'INVALID_CREDENTIALS'),
         );
       }
       final session = await currentSession();
@@ -87,18 +156,159 @@ class SupabaseAuthRepository implements IAuthRepository {
         session ??
             AuthSession(
               userId: user.id,
-              email: user.email ?? email.trim(),
+              email: user.email ?? email.trim().toLowerCase(),
               provider: 'email',
               isDemo: false,
               hasCompletedOnboarding: false,
             ),
       );
     } on AuthException catch (e) {
+      final lower = e.message.toLowerCase();
+      if (lower.contains('not confirmed')) {
+        return const FailureResult<AuthSession>(
+          AuthFailure(
+            'Seu e-mail ainda aguarda confirmação com o código de 6 dígitos.',
+            code: 'EMAIL_NOT_CONFIRMED',
+          ),
+        );
+      }
+      if (lower.contains('invalid login credentials')) {
+        return const FailureResult<AuthSession>(
+          AuthFailure(
+            'E-mail ou senha incorretos.',
+            code: 'INVALID_CREDENTIALS',
+          ),
+        );
+      }
       return FailureResult<AuthSession>(AuthFailure(e.message));
     } catch (e) {
       return FailureResult<AuthSession>(
         NetworkFailure('Erro ao autenticar: $e'),
       );
+    }
+  }
+
+  @override
+  Future<Result<OtpDispatchInfo>> startEmailRegistration({
+    required String email,
+    required String confirmEmail,
+    required String password,
+    required String confirmPassword,
+    required bool acceptTerms,
+    required bool confirmAge18Plus,
+    required String termsVersion,
+    required String privacyVersion,
+    required String appVersion,
+  }) async {
+    try {
+      final res = await _client.functions.invoke(
+        'auth-register-start',
+        body: <String, dynamic>{
+          'email': email.trim().toLowerCase(),
+          'confirm_email': confirmEmail.trim().toLowerCase(),
+          'password': password,
+          'confirm_password': confirmPassword,
+          'accept_terms': acceptTerms,
+          'confirm_age_18_plus': confirmAge18Plus,
+          'terms_version': termsVersion,
+          'privacy_version': privacyVersion,
+          'app_version': appVersion,
+        },
+      );
+      final map = _asMap(res.data);
+      return Success<OtpDispatchInfo>(
+        OtpDispatchInfo(
+          maskedEmail: (map['masked_email'] as String?) ?? email.trim(),
+          expiresInSeconds: (map['expires_in_seconds'] as num?)?.toInt() ?? 600,
+          cooldownSeconds: (map['cooldown_seconds'] as num?)?.toInt() ?? 60,
+        ),
+      );
+    } on FunctionException catch (e) {
+      return FailureResult<OtpDispatchInfo>(_mapFunctionFailure(e));
+    } catch (e) {
+      return FailureResult<OtpDispatchInfo>(
+        NetworkFailure('Erro ao enviar código de confirmação: $e'),
+      );
+    }
+  }
+
+  @override
+  Future<Result<OtpDispatchInfo>> requestPasswordResetOtp(String email) async {
+    try {
+      final res = await _client.functions.invoke(
+        'auth-forgot-password',
+        body: <String, dynamic>{'email': email.trim().toLowerCase()},
+      );
+      final map = _asMap(res.data);
+      return Success<OtpDispatchInfo>(
+        OtpDispatchInfo(
+          maskedEmail: (map['masked_email'] as String?) ?? email.trim(),
+          expiresInSeconds: (map['expires_in_seconds'] as num?)?.toInt() ?? 600,
+          cooldownSeconds: (map['cooldown_seconds'] as num?)?.toInt() ?? 60,
+        ),
+      );
+    } on FunctionException catch (e) {
+      return FailureResult<OtpDispatchInfo>(_mapFunctionFailure(e));
+    } catch (e) {
+      return FailureResult<OtpDispatchInfo>(
+        NetworkFailure('Erro ao solicitar código de recuperação: $e'),
+      );
+    }
+  }
+
+  @override
+  Future<Result<OtpVerifyResult>> verifyEmailOtp({
+    required String email,
+    required String code,
+    required OtpPurpose purpose,
+  }) async {
+    try {
+      final res = await _client.functions.invoke(
+        'auth-verify-otp',
+        body: <String, dynamic>{
+          'email': email.trim().toLowerCase(),
+          'code': code.trim(),
+          'purpose': purpose.apiValue,
+        },
+      );
+      final map = _asMap(res.data);
+      return Success<OtpVerifyResult>(
+        OtpVerifyResult(
+          verified: map['verified'] == true,
+          resetToken: map['reset_token'] as String?,
+        ),
+      );
+    } on FunctionException catch (e) {
+      return FailureResult<OtpVerifyResult>(_mapFunctionFailure(e));
+    } catch (e) {
+      return FailureResult<OtpVerifyResult>(
+        NetworkFailure('Erro ao validar código de 6 dígitos: $e'),
+      );
+    }
+  }
+
+  @override
+  Future<Result<void>> completePasswordReset({
+    required String email,
+    required String resetToken,
+    required String newPassword,
+    required String confirmPassword,
+  }) async {
+    try {
+      await _client.functions.invoke(
+        'auth-reset-password',
+        body: <String, dynamic>{
+          'email': email.trim().toLowerCase(),
+          'reset_token': resetToken.trim(),
+          'new_password': newPassword,
+          'confirm_password': confirmPassword,
+        },
+      );
+      return const Success<void>(null);
+    } on FunctionException catch (e) {
+      return FailureResult<void>(_mapFunctionFailure(e));
+    } catch (e) {
+      return FailureResult<void>(NetworkFailure('Erro ao redefinir senha: $e'));
     }
   }
 

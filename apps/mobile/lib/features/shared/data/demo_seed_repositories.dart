@@ -6,6 +6,7 @@ import '../../../core/domain/value_objects/gamer_age.dart';
 import '../../../core/domain/value_objects/weekly_schedule_mask.dart';
 import '../../../core/errors/app_failure.dart';
 import '../../../core/media/avatar_photo_sanitizer.dart';
+import '../../../core/security/nexus_password_policy.dart';
 import '../../chat/domain/chat_message.dart';
 import '../../discovery/domain/discovery_entities.dart';
 import '../../discovery/domain/match_scoring_strategy.dart';
@@ -38,6 +39,13 @@ class DemoSeedStore {
       'lNvQ74Jl1TvHOHYNNRoJlf1cMAwwfAEBT7nK5iPNTyk=';
 
   late final AesGcmE2EECipher myCipher;
+  final Map<String, ({String password, bool verified})> demoAccounts =
+      <String, ({String password, bool verified})>{
+        'clara@nexusduo.app': (password: 'K9#vQ2!pX4', verified: true),
+        'demo@nexusduo.app': (password: 'K9#vQ2!pX4', verified: true),
+        'valkyrie@nexusduo.app': (password: 'K9#vQ2!pX4', verified: true),
+      };
+  final Map<String, String> demoResetTokens = <String, String>{};
   late final Map<String, AesGcmE2EECipher> peerCiphers;
 
   AuthSession? session;
@@ -547,25 +555,256 @@ class DemoSeedAuthRepository implements IAuthRepository {
     return Success<AuthSession>(session);
   }
 
+  static const String demoOtpCode = '123456';
+
+  String _mask(String email) {
+    final clean = email.trim().toLowerCase();
+    final parts = clean.split('@');
+    if (parts.length != 2) return '***';
+    final local = parts[0];
+    final domain = parts[1];
+    if (local.length <= 2) {
+      return '${local.isEmpty ? '*' : local[0]}***@$domain';
+    }
+    return '${local[0]}***${local[local.length - 1]}@$domain';
+  }
+
+  @override
+  Future<Result<AccountLookupStatus>> checkAccountStatus(String email) async {
+    final clean = email.trim().toLowerCase();
+    if (!clean.contains('@') || !clean.contains('.')) {
+      return const FailureResult<AccountLookupStatus>(
+        ValidationFailure('Informe um e-mail válido.', code: 'INVALID_EMAIL'),
+      );
+    }
+    final record = _store.demoAccounts[clean];
+    if (record == null) {
+      return const Success<AccountLookupStatus>(AccountLookupStatus.notFound);
+    }
+    return Success<AccountLookupStatus>(
+      record.verified
+          ? AccountLookupStatus.active
+          : AccountLookupStatus.unverified,
+    );
+  }
+
   @override
   Future<Result<AuthSession>> signInWithEmail({
     required String email,
     required String password,
   }) async {
-    if (!email.contains('@') || password.length < 6) {
+    final clean = email.trim().toLowerCase();
+    if (!clean.contains('@') || password.isEmpty) {
       return const FailureResult<AuthSession>(
-        ValidationFailure('Informe um email válido e senha com 6+ caracteres.'),
+        ValidationFailure('Informe um e-mail válido e sua senha.'),
+      );
+    }
+    final record = _store.demoAccounts[clean];
+    if (record == null) {
+      return const FailureResult<AuthSession>(
+        AuthFailure(
+          'Nenhuma conta encontrada para este e-mail.',
+          code: 'ACCOUNT_NOT_FOUND',
+        ),
+      );
+    }
+    if (!record.verified) {
+      return const FailureResult<AuthSession>(
+        AuthFailure(
+          'Seu e-mail ainda aguarda validação do código de 6 dígitos.',
+          code: 'EMAIL_NOT_CONFIRMED',
+        ),
+      );
+    }
+    if (record.password != password) {
+      return const FailureResult<AuthSession>(
+        AuthFailure('E-mail ou senha incorretos.', code: 'INVALID_CREDENTIALS'),
       );
     }
     final session = AuthSession(
       userId: _store.myProfile.id,
-      email: email.trim(),
+      email: clean,
       provider: 'email_demo',
       isDemo: true,
       hasCompletedOnboarding: false,
     );
     _store.session = session;
     return Success<AuthSession>(session);
+  }
+
+  @override
+  Future<Result<OtpDispatchInfo>> startEmailRegistration({
+    required String email,
+    required String confirmEmail,
+    required String password,
+    required String confirmPassword,
+    required bool acceptTerms,
+    required bool confirmAge18Plus,
+    required String termsVersion,
+    required String privacyVersion,
+    required String appVersion,
+  }) async {
+    final clean = email.trim().toLowerCase();
+    final cleanConfirm = confirmEmail.trim().toLowerCase();
+    if (!clean.contains('@') || !clean.contains('.')) {
+      return const FailureResult<OtpDispatchInfo>(
+        ValidationFailure('Informe um e-mail válido.', code: 'INVALID_EMAIL'),
+      );
+    }
+    if (clean != cleanConfirm) {
+      return const FailureResult<OtpDispatchInfo>(
+        ValidationFailure(
+          'Os dois campos de e-mail devem ser idênticos.',
+          code: 'EMAIL_MISMATCH',
+        ),
+      );
+    }
+    if (!acceptTerms || !confirmAge18Plus) {
+      return const FailureResult<OtpDispatchInfo>(
+        ValidationFailure(
+          'Você precisa confirmar ter 18+ anos e aceitar os Termos de Uso e LGPD.',
+          code: 'LEGAL_CONSENT_REQUIRED',
+        ),
+      );
+    }
+    if (password != confirmPassword) {
+      return const FailureResult<OtpDispatchInfo>(
+        ValidationFailure(
+          'As duas senhas digitadas não conferem.',
+          code: 'PASSWORD_MISMATCH',
+        ),
+      );
+    }
+    final policy = NexusPasswordPolicy.evaluate(password, email: clean);
+    if (!policy.isValid) {
+      return FailureResult<OtpDispatchInfo>(
+        ValidationFailure(
+          policy.primaryErrorMessage ??
+              'A senha não atende aos requisitos de segurança.',
+          code: 'PASSWORD_POLICY_VIOLATION',
+        ),
+      );
+    }
+    final existing = _store.demoAccounts[clean];
+    if (existing != null && existing.verified) {
+      return const FailureResult<OtpDispatchInfo>(
+        AuthFailure(
+          'Este e-mail já possui conta cadastrada.',
+          code: 'ACCOUNT_ALREADY_EXISTS',
+        ),
+      );
+    }
+    _store.demoAccounts[clean] = (password: password, verified: false);
+    return Success<OtpDispatchInfo>(
+      OtpDispatchInfo(
+        maskedEmail: _mask(clean),
+        expiresInSeconds: 600,
+        cooldownSeconds: 60,
+        demoCodeHint: demoOtpCode,
+      ),
+    );
+  }
+
+  @override
+  Future<Result<OtpDispatchInfo>> requestPasswordResetOtp(String email) async {
+    final clean = email.trim().toLowerCase();
+    if (!_store.demoAccounts.containsKey(clean)) {
+      return const FailureResult<OtpDispatchInfo>(
+        AuthFailure(
+          'Nenhuma conta NEXUS DUO encontrada para este e-mail.',
+          code: 'ACCOUNT_NOT_FOUND',
+        ),
+      );
+    }
+    return Success<OtpDispatchInfo>(
+      OtpDispatchInfo(
+        maskedEmail: _mask(clean),
+        expiresInSeconds: 600,
+        cooldownSeconds: 60,
+        demoCodeHint: demoOtpCode,
+      ),
+    );
+  }
+
+  @override
+  Future<Result<OtpVerifyResult>> verifyEmailOtp({
+    required String email,
+    required String code,
+    required OtpPurpose purpose,
+  }) async {
+    final clean = email.trim().toLowerCase();
+    if (!RegExp(r'^\d{6}$').hasMatch(code.trim())) {
+      return const FailureResult<OtpVerifyResult>(
+        ValidationFailure(
+          'Digite os 6 dígitos numéricos do código.',
+          code: 'OTP_INVALID_FORMAT',
+        ),
+      );
+    }
+    if (code.trim() != demoOtpCode) {
+      return const FailureResult<OtpVerifyResult>(
+        AuthFailure(
+          'Código incorreto (no modo Demo utilize 123456).',
+          code: 'OTP_INVALID',
+        ),
+      );
+    }
+    final existing = _store.demoAccounts[clean];
+    if (existing == null) {
+      return const FailureResult<OtpVerifyResult>(
+        AuthFailure(
+          'Cadastro não encontrado para validação.',
+          code: 'OTP_EXPIRED_OR_NOT_FOUND',
+        ),
+      );
+    }
+    if (purpose == OtpPurpose.signupVerify) {
+      _store.demoAccounts[clean] = (
+        password: existing.password,
+        verified: true,
+      );
+      return const Success<OtpVerifyResult>(OtpVerifyResult(verified: true));
+    }
+    final token = 'demo-reset-token-${clean.hashCode.abs()}';
+    _store.demoResetTokens[clean] = token;
+    return Success<OtpVerifyResult>(
+      OtpVerifyResult(verified: true, resetToken: token),
+    );
+  }
+
+  @override
+  Future<Result<void>> completePasswordReset({
+    required String email,
+    required String resetToken,
+    required String newPassword,
+    required String confirmPassword,
+  }) async {
+    final clean = email.trim().toLowerCase();
+    if (newPassword != confirmPassword) {
+      return const FailureResult<void>(
+        ValidationFailure('As duas senhas digitadas não conferem.'),
+      );
+    }
+    final policy = NexusPasswordPolicy.evaluate(newPassword, email: clean);
+    if (!policy.isValid) {
+      return FailureResult<void>(
+        ValidationFailure(
+          policy.primaryErrorMessage ?? 'Senha fora da política de segurança.',
+          code: 'PASSWORD_POLICY_VIOLATION',
+        ),
+      );
+    }
+    if (_store.demoResetTokens[clean] != resetToken) {
+      return const FailureResult<void>(
+        AuthFailure(
+          'Sessão de redefinição expirada.',
+          code: 'RESET_TOKEN_INVALID',
+        ),
+      );
+    }
+    _store.demoAccounts[clean] = (password: newPassword, verified: true);
+    _store.demoResetTokens.remove(clean);
+    return const Success<void>(null);
   }
 
   @override
