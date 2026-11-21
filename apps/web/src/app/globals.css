@@ -1,0 +1,96 @@
+@import '../../../../packages/design-tokens/dist/tokens.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    background-color: var(--nexus-bg-void);
+    color: var(--nexus-text-primary);
+    font-family: var(--nexus-font-body);
+    color-scheme: dark;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--nexus-bg-void);
+    color: var(--nexus-text-primary);
+    min-height: 100dvh;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--nexus-font-display);
+  }
+}
+
+.nexus-tabular {
+  font-family: var(--nexus-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.nexus-glass {
+  background: rgba(17, 21, 33, 0.78);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--nexus-border-subtle);
+}
+
+.nexus-surface-card {
+  background: var(--nexus-bg-surface);
+  border: 1px solid var(--nexus-border-subtle);
+  box-shadow: var(--nexus-shadow-card);
+}
+
+.nexus-elevated-card {
+  background: var(--nexus-bg-elevated);
+  border: 1px solid var(--nexus-border-subtle);
+}
+
+.nexus-brand-gradient {
+  background: var(--nexus-gradient-brand);
+}
+
+.nexus-scrim {
+  background: var(--nexus-gradient-scrim-card);
+}
+
+.nexus-aura-bg {
+  background-image:
+    radial-gradient(640px circle at 15% 10%, rgba(139, 92, 246, 0.16), transparent 60%),
+    radial-gradient(520px circle at 85% 18%, rgba(6, 182, 212, 0.12), transparent 55%),
+    radial-gradient(560px circle at 50% 95%, rgba(236, 72, 153, 0.09), transparent 60%);
+}
+
+.nexus-holo-border {
+  position: relative;
+  border: 1px solid var(--nexus-border-glow);
+  box-shadow:
+    0 20px 50px -12px rgba(0, 0, 0, 0.65),
+    0 0 32px rgba(139, 92, 246, 0.22);
+}
+
+/* Subtle OLED scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.22);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(139, 92, 246, 0.48);
+}

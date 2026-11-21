@@ -44,5 +44,6 @@ supabase/.temp/
 
 # Logs & Artifacts
 *.log
+*.tsbuildinfo
 playwright-report/
 test-results/

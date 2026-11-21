@@ -1,0 +1,4 @@
+# Shorebird OTA Configuration for NEXUS DUO Mobile
+# Run `shorebird init` once linked to a Shorebird account to populate app_id.
+app_id: nexus-duo-android-mvp
+auto_update: true

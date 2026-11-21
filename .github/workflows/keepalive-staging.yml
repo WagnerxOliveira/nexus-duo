@@ -1,0 +1,40 @@
+name: Supabase Free Tier Keep-Alive Ping
+
+on:
+  schedule:
+    # Run at 12:00 UTC every 4 days (prevents Supabase 7-day auto-pause)
+    - cron: '0 12 */4 * *'
+  workflow_dispatch:
+
+jobs:
+  keepalive-ping:
+    name: 💓 Ping Supabase Database & Auth API
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST Health / Schema Endpoint
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL || secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY || secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ]; then
+            echo "::warning::SUPABASE_URL secret is not configured yet. Ping skipped."
+            exit 0
+          fi
+
+          TARGET_URL="${SUPABASE_URL%/}/rest/v1/"
+          echo "Pinging Supabase REST endpoint: $TARGET_URL"
+
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            "$TARGET_URL" || echo "000")
+
+          echo "Response HTTP Status: $HTTP_STATUS"
+
+          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 400 ]; then
+            echo "✅ Supabase project is active and healthy (HTTP $HTTP_STATUS)!"
+          elif [ "$HTTP_STATUS" -eq 401 ] || [ "$HTTP_STATUS" -eq 403 ]; then
+            echo "ℹ️ Supabase answered with auth challenge (HTTP $HTTP_STATUS) — instance is active and awake!"
+          else
+            echo "⚠️ Ping received HTTP $HTTP_STATUS. Please verify your Supabase project status."
+          fi

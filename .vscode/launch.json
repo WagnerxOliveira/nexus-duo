@@ -1,0 +1,82 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Mobile: Flutter (Debug)",
+      "request": "launch",
+      "type": "dart",
+      "cwd": "apps/mobile",
+      "program": "lib/main.dart",
+      "args": [
+        "--dart-define-from-file=.env.json"
+      ]
+    },
+    {
+      "name": "Mobile: Flutter (Profile Mode)",
+      "request": "launch",
+      "type": "dart",
+      "cwd": "apps/mobile",
+      "program": "lib/main.dart",
+      "flutterMode": "profile",
+      "args": [
+        "--dart-define-from-file=.env.json"
+      ]
+    },
+    {
+      "name": "Mobile: Flutter (Release Mode)",
+      "request": "launch",
+      "type": "dart",
+      "cwd": "apps/mobile",
+      "program": "lib/main.dart",
+      "flutterMode": "release",
+      "args": [
+        "--dart-define-from-file=.env.json"
+      ]
+    },
+    {
+      "name": "Web: Next.js Node (Dev Server)",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/apps/web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "serverReadyAction": {
+        "pattern": "- Local:\\s+(https?://.+)",
+        "uriFormat": "%s",
+        "action": "openExternally"
+      },
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Web: Next.js Client (Chrome)",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:3000",
+      "webRoot": "${workspaceFolder}/apps/web"
+    },
+    {
+      "name": "Web: Vitest (Testes Unitários)",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/apps/web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "test"
+      ],
+      "console": "integratedTerminal"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "NEXUS DUO: Fullstack (Web Dev + Mobile Debug)",
+      "configurations": [
+        "Web: Next.js Node (Dev Server)",
+        "Mobile: Flutter (Debug)"
+      ]
+    }
+  ]
+}

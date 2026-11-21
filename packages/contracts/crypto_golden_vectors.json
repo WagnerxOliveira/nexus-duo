@@ -1,0 +1,65 @@
+{
+  "version": "1.0.0",
+  "algorithm": {
+    "key_exchange": "X25519",
+    "kdf": "HKDF-SHA256",
+    "kdf_salt": "UTF8(match_id)",
+    "kdf_info": "nexus-duo-e2ee-v1",
+    "kdf_length_bytes": 32,
+    "cipher": "AES-256-GCM",
+    "nonce_length_bytes": 12,
+    "tag_length_bits": 128,
+    "aad_format": "UTF8(match_id + \":\" + sender_id)",
+    "ciphertext_serialization": "Base64(cipherTextBytes || authTag16Bytes)"
+  },
+  "vectors": [
+    {
+      "id": "vector-1-ptbr-emoji",
+      "description": "Clara envia mensagem PT-BR com acentos e emojis para Lucas no Match 1",
+      "match_id": "550e8400-e29b-41d4-a716-446655440001",
+      "sender_id": "11111111-1111-4111-8111-111111111111",
+      "sender_private_key_b64": "YGkk4j92xxx0nYxvZXaTDjvg5nfX6c7kGaJyy7WcYEw=",
+      "sender_public_key_b64": "Lf5/8h/sZzBwu7f1D7KRq9Edf0y1NSFzFbjhiwrqs2E=",
+      "recipient_private_key_b64": "GBoXatNGHkeTsUwxJVuRz3jmYmLvGSGZ3rKuAzm7EGQ=",
+      "recipient_public_key_b64": "6G4CBAE6tQC6mdGj6cOLjJPkS+WZ2pn8K+/hneZ78Q0=",
+      "nonce_b64": "xuM7nejNfM11pp2z",
+      "aad_utf8": "550e8400-e29b-41d4-a716-446655440001:11111111-1111-4111-8111-111111111111",
+      "plaintext": "Oi Lucas! Vi que você também joga Valorant às 21h 🎮💜 Topa um Swiftplay hoje?",
+      "expected_shared_secret_b64": "5+ZIPCey8iY67CJpfTYyGNneOzG5ooElmPtc/qcILyk=",
+      "expected_session_key_b64": "BvibQRKDXA2uTgwXDxTCI0vY3PmhNpDQn7wGTCQkzUs=",
+      "expected_ciphertext_b64": "JNKMcjSTmyuvvaBwuRYL8UIYnnSE+jAnaKpiMX9dDqzgYp473BIrkh3VxAGLhcYotapjFCBLFZMfBhDsf0chVhX6vjHXt9aYJOeORDoKVkHiyqRcGpY0TlKzh9lSdnYv9Zb7djQ="
+    },
+    {
+      "id": "vector-2-symmetric-reply-json",
+      "description": "Lucas responde para Clara (simetria X25519) com payload JSON de convite de lobby",
+      "match_id": "550e8400-e29b-41d4-a716-446655440001",
+      "sender_id": "22222222-2222-4222-8222-222222222222",
+      "sender_private_key_b64": "GBoXatNGHkeTsUwxJVuRz3jmYmLvGSGZ3rKuAzm7EGQ=",
+      "sender_public_key_b64": "6G4CBAE6tQC6mdGj6cOLjJPkS+WZ2pn8K+/hneZ78Q0=",
+      "recipient_private_key_b64": "YGkk4j92xxx0nYxvZXaTDjvg5nfX6c7kGaJyy7WcYEw=",
+      "recipient_public_key_b64": "Lf5/8h/sZzBwu7f1D7KRq9Edf0y1NSFzFbjhiwrqs2E=",
+      "nonce_b64": "1Qvb4ps5y9t1hY9m",
+      "aad_utf8": "550e8400-e29b-41d4-a716-446655440001:22222222-2222-4222-8222-222222222222",
+      "plaintext": "{\"type\":\"lobby_invite\",\"game\":\"Valorant\",\"mode\":\"casual\",\"voice\":\"discord\",\"code\":\"DUO-9421\"}",
+      "expected_shared_secret_b64": "5+ZIPCey8iY67CJpfTYyGNneOzG5ooElmPtc/qcILyk=",
+      "expected_session_key_b64": "BvibQRKDXA2uTgwXDxTCI0vY3PmhNpDQn7wGTCQkzUs=",
+      "expected_ciphertext_b64": "FmG7t41w8Lf5c23MV2FZ0t+oLjFUWvCXmskER97lCddsxGcnjmcx0i4ChhHBewlCTa4ETLvniyYBK2FNSc+bFRRgsppO9zc60z+w1k7Sq008dw8BHaqDfPu3F3QXSmIErB5Yl+1Bbu83TSXPHg=="
+    },
+    {
+      "id": "vector-3-multibyte-different-match",
+      "description": "Bia envia mensagem multi-byte e caracteres especiais para Clara em outro Match",
+      "match_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+      "sender_id": "33333333-3333-4333-8333-333333333333",
+      "sender_private_key_b64": "mDxrdIEKT0kPMg2oLQGg/ddn5zKVEGzMhsmFpvk4KF0=",
+      "sender_public_key_b64": "lNvQ74Jl1TvHOHYNNRoJlf1cMAwwfAEBT7nK5iPNTyk=",
+      "recipient_private_key_b64": "YGkk4j92xxx0nYxvZXaTDjvg5nfX6c7kGaJyy7WcYEw=",
+      "recipient_public_key_b64": "Lf5/8h/sZzBwu7f1D7KRq9Edf0y1NSFzFbjhiwrqs2E=",
+      "nonce_b64": "mtWlWnuiNCtD1sSP",
+      "aad_utf8": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d:33333333-3333-4333-8333-333333333333",
+      "plaintext": "Stardew Valley co-op: fazenda organizada ou caos criativo? ✨🌱 — Ação & café ☕!",
+      "expected_shared_secret_b64": "aSRXLVoV14Dw4aFvwbFurAkNYK5IG/vbivmMC/gq7nA=",
+      "expected_session_key_b64": "gX4JINwD9r7h5M9W/gZk3OFXFO91tuVIp9dutv340s0=",
+      "expected_ciphertext_b64": "MWOz+Ljo8YhI9QWuw0V2p5a+4tILgpEoXON+DVeeTEGqIuJ9g87EhJ0hvgcG2XkDzJu3/1EI9NacWoWfr6xsi89N5XrxMp/3MOgHA1th4WD16i3NNmiSVqaH3VKP9JblYvMPABkz1Yq1UQ=="
+    }
+  ]
+}
