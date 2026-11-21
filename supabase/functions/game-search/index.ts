@@ -217,6 +217,43 @@ async function fetchFromRawg(query: string, limit: number): Promise<CatalogGame[
   return games;
 }
 
+interface SteamStoreSearchItem {
+  id: number;
+  name?: string;
+}
+
+async function fetchFromSteamStore(query: string, limit: number): Promise<CatalogGame[]> {
+  const url = new URL("https://store.steampowered.com/api/storesearch/");
+  url.searchParams.set("term", query);
+  url.searchParams.set("l", "brazilian");
+  url.searchParams.set("cc", "BR");
+
+  const res = await fetch(url.toString(), { method: "GET" });
+  if (!res.ok) return [];
+
+  const payload = await res.json();
+  const items = (payload?.items ?? []) as SteamStoreSearchItem[];
+  if (!Array.isArray(items)) return [];
+
+  const games: CatalogGame[] = [];
+  for (const item of items.slice(0, limit)) {
+    const title = item.name?.trim();
+    if (!title || !Number.isFinite(item.id)) continue;
+
+    games.push({
+      external_source: "steam",
+      external_id: String(item.id),
+      title: title.slice(0, 160),
+      slug: sanitizeSlug(title),
+      cover_url: `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${item.id}/library_600x900.jpg`,
+      genres: ["pc", "steam"],
+      platforms: ["pc", "steam_deck"],
+      supports_crossplay: false,
+    });
+  }
+  return games;
+}
+
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: buildCorsHeaders(req) });
@@ -297,8 +334,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     );
   }
 
-  // Stage 2: External fallback (IGDB primary -> RAWG secondary)
-  let source: "cache" | "igdb" | "rawg" = "cache";
+  // Stage 2: External fallback (IGDB primary -> RAWG secondary -> Steam Store zero-key)
+  let source: "cache" | "igdb" | "rawg" | "steam_public" = "cache";
   let externalGames: CatalogGame[] = [];
 
   try {
@@ -309,6 +346,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
       externalGames = await fetchFromRawg(query, limit);
       if (externalGames.length > 0) {
         source = "rawg";
+      } else {
+        externalGames = await fetchFromSteamStore(query, limit);
+        if (externalGames.length > 0) {
+          source = "steam_public";
+        }
       }
     }
   } catch {
