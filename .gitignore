@@ -1,0 +1,48 @@
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+key.properties
+google-services.json
+GoogleService-Info.plist
+
+# OS & Editors
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+.idea/
+.vscode/*.log
+
+# Flutter / Dart
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+**/build/
+*.iml
+coverage/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Node / Next.js / Web
+node_modules/
+**/node_modules/
+.next/
+out/
+.turbo/
+.vercel/
+npm-debug.log*
+pnpm-debug.log*
+
+# Supabase Local
+supabase/.branches/
+supabase/.temp/
+
+# Logs & Artifacts
+*.log
+playwright-report/
+test-results/
