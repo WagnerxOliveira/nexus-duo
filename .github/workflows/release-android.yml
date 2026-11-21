@@ -56,13 +56,46 @@ jobs:
         run: |
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "::notice::Injecting signing keystore from GitHub Secrets..."
-            echo "$KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
+            CLEAN_STORE_PW="$(printf '%s' "$KEYSTORE_PASSWORD" | tr -d '\r\n')"
+            CLEAN_KEY_PW="$(printf '%s' "$KEY_PASSWORD" | tr -d '\r\n')"
+            CLEAN_ALIAS="$(printf '%s' "$KEY_ALIAS" | tr -d '\r\n')"
+            printf '%s' "$KEYSTORE_BASE64" | tr -d '\r\n ' | base64 --decode > android/app/upload-keystore.jks
             cat <<EOF > android/key.properties
-          storePassword=$KEYSTORE_PASSWORD
-          keyPassword=$KEY_PASSWORD
-          keyAlias=$KEY_ALIAS
+          storePassword=$CLEAN_STORE_PW
+          keyPassword=$CLEAN_KEY_PW
+          keyAlias=$CLEAN_ALIAS
           storeFile=upload-keystore.jks
           EOF
+            cat <<'JAVA' > /tmp/VerifyKeystore.java
+          import java.io.File;
+          import java.io.FileInputStream;
+          import java.security.Key;
+          import java.security.KeyStore;
+          import java.util.Properties;
+
+          public class VerifyKeystore {
+            public static void main(String[] args) throws Exception {
+              Properties props = new Properties();
+              try (FileInputStream fis = new FileInputStream(args[1])) {
+                props.load(fis);
+              }
+              KeyStore ks = KeyStore.getInstance(
+                new File(args[0]),
+                props.getProperty("storePassword").toCharArray()
+              );
+              Key key = ks.getKey(
+                props.getProperty("keyAlias"),
+                props.getProperty("keyPassword").toCharArray()
+              );
+              if (key == null) {
+                throw new IllegalStateException("Key entry not found for alias");
+              }
+              System.out.println("CI Keystore verified OK: " + ks.getType() + " / " + key.getAlgorithm());
+            }
+          }
+          JAVA
+            java /tmp/VerifyKeystore.java android/app/upload-keystore.jks android/key.properties
+            rm -f /tmp/VerifyKeystore.java
           else
             echo "::warning::ANDROID_KEYSTORE_BASE64 not configured. Building with default debug signing config."
           fi
