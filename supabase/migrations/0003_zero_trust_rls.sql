@@ -207,10 +207,10 @@ CREATE POLICY "profiles_select_visible"
   FOR SELECT
   TO authenticated
   USING (
-    id = auth.uid()
+    id = (select auth.uid())
     OR (
       is_active = true
-      AND NOT public.is_blocked_between(auth.uid(), id)
+      AND NOT public.is_blocked_between((select auth.uid()), id)
     )
   );
 
@@ -218,20 +218,20 @@ CREATE POLICY "profiles_insert_own"
   ON public.profiles
   FOR INSERT
   TO authenticated
-  WITH CHECK (id = auth.uid());
+  WITH CHECK (id = (select auth.uid()));
 
 CREATE POLICY "profiles_update_own"
   ON public.profiles
   FOR UPDATE
   TO authenticated
-  USING (id = auth.uid())
-  WITH CHECK (id = auth.uid());
+  USING (id = (select auth.uid()))
+  WITH CHECK (id = (select auth.uid()));
 
 CREATE POLICY "profiles_delete_own"
   ON public.profiles
   FOR DELETE
   TO authenticated
-  USING (id = auth.uid());
+  USING (id = (select auth.uid()));
 
 -- -----------------------------------------------------------------------------
 -- 5.2 PROFILE_PHOTOS
@@ -241,9 +241,9 @@ CREATE POLICY "profile_photos_select_visible"
   FOR SELECT
   TO authenticated
   USING (
-    user_id = auth.uid()
+    user_id = (select auth.uid())
     OR (
-      NOT public.is_blocked_between(auth.uid(), user_id)
+      NOT public.is_blocked_between((select auth.uid()), user_id)
       AND EXISTS (
         SELECT 1
         FROM public.profiles p
@@ -257,20 +257,20 @@ CREATE POLICY "profile_photos_insert_own"
   ON public.profile_photos
   FOR INSERT
   TO authenticated
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (user_id = (select auth.uid()));
 
 CREATE POLICY "profile_photos_update_own"
   ON public.profile_photos
   FOR UPDATE
   TO authenticated
-  USING (user_id = auth.uid())
-  WITH CHECK (user_id = auth.uid());
+  USING (user_id = (select auth.uid()))
+  WITH CHECK (user_id = (select auth.uid()));
 
 CREATE POLICY "profile_photos_delete_own"
   ON public.profile_photos
   FOR DELETE
   TO authenticated
-  USING (user_id = auth.uid());
+  USING (user_id = (select auth.uid()));
 
 -- -----------------------------------------------------------------------------
 -- 5.3 GAMES_CATALOG (Public autocomplete read; server-only writes)
@@ -308,9 +308,9 @@ CREATE POLICY "user_games_select_visible"
   FOR SELECT
   TO authenticated
   USING (
-    user_id = auth.uid()
+    user_id = (select auth.uid())
     OR (
-      NOT public.is_blocked_between(auth.uid(), user_id)
+      NOT public.is_blocked_between((select auth.uid()), user_id)
       AND EXISTS (
         SELECT 1
         FROM public.profiles p
@@ -324,20 +324,20 @@ CREATE POLICY "user_games_insert_own"
   ON public.user_games
   FOR INSERT
   TO authenticated
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (user_id = (select auth.uid()));
 
 CREATE POLICY "user_games_update_own"
   ON public.user_games
   FOR UPDATE
   TO authenticated
-  USING (user_id = auth.uid())
-  WITH CHECK (user_id = auth.uid());
+  USING (user_id = (select auth.uid()))
+  WITH CHECK (user_id = (select auth.uid()));
 
 CREATE POLICY "user_games_delete_own"
   ON public.user_games
   FOR DELETE
   TO authenticated
-  USING (user_id = auth.uid());
+  USING (user_id = (select auth.uid()));
 
 -- -----------------------------------------------------------------------------
 -- 5.5 USER_BADGES (Positive GG Reputation Badges)
@@ -347,9 +347,9 @@ CREATE POLICY "user_badges_select_visible"
   FOR SELECT
   TO authenticated
   USING (
-    recipient_id = auth.uid()
-    OR giver_id = auth.uid()
-    OR NOT public.is_blocked_between(auth.uid(), recipient_id)
+    recipient_id = (select auth.uid())
+    OR giver_id = (select auth.uid())
+    OR NOT public.is_blocked_between((select auth.uid()), recipient_id)
   );
 
 CREATE POLICY "user_badges_insert_from_match"
@@ -357,9 +357,9 @@ CREATE POLICY "user_badges_insert_from_match"
   FOR INSERT
   TO authenticated
   WITH CHECK (
-    giver_id = auth.uid()
-    AND recipient_id <> auth.uid()
-    AND NOT public.is_blocked_between(auth.uid(), recipient_id)
+    giver_id = (select auth.uid())
+    AND recipient_id <> (select auth.uid())
+    AND NOT public.is_blocked_between((select auth.uid()), recipient_id)
     AND EXISTS (
       SELECT 1
       FROM public.matches m
@@ -383,7 +383,7 @@ CREATE POLICY "user_badges_delete_own_given"
   ON public.user_badges
   FOR DELETE
   TO authenticated
-  USING (giver_id = auth.uid());
+  USING (giver_id = (select auth.uid()));
 
 -- -----------------------------------------------------------------------------
 -- 5.6 SWIPES (Strictly private to actor; no spying, no self-swipe, immutable)
@@ -392,16 +392,16 @@ CREATE POLICY "swipes_select_own"
   ON public.swipes
   FOR SELECT
   TO authenticated
-  USING (actor_id = auth.uid());
+  USING (actor_id = (select auth.uid()));
 
 CREATE POLICY "swipes_insert_own"
   ON public.swipes
   FOR INSERT
   TO authenticated
   WITH CHECK (
-    actor_id = auth.uid()
-    AND target_id <> auth.uid()
-    AND NOT public.is_blocked_between(auth.uid(), target_id)
+    actor_id = (select auth.uid())
+    AND target_id <> (select auth.uid())
+    AND NOT public.is_blocked_between((select auth.uid()), target_id)
   );
 
 CREATE POLICY "swipes_deny_update"
@@ -425,7 +425,7 @@ CREATE POLICY "matches_select_participants"
   FOR SELECT
   TO authenticated
   USING (
-    auth.uid() IN (user_a, user_b)
+    (select auth.uid()) IN (user_a, user_b)
     AND NOT public.is_blocked_between(user_a, user_b)
   );
 
@@ -440,11 +440,11 @@ CREATE POLICY "matches_update_participants"
   FOR UPDATE
   TO authenticated
   USING (
-    auth.uid() IN (user_a, user_b)
+    (select auth.uid()) IN (user_a, user_b)
     AND NOT public.is_blocked_between(user_a, user_b)
   )
   WITH CHECK (
-    auth.uid() IN (user_a, user_b)
+    (select auth.uid()) IN (user_a, user_b)
   );
 
 CREATE POLICY "matches_deny_delete"
@@ -466,7 +466,7 @@ CREATE POLICY "messages_select_participants"
       FROM public.matches m
       WHERE m.id = messages.match_id
         AND m.is_active = true
-        AND auth.uid() IN (m.user_a, m.user_b)
+        AND (select auth.uid()) IN (m.user_a, m.user_b)
         AND NOT public.is_blocked_between(m.user_a, m.user_b)
     )
   );
@@ -476,13 +476,13 @@ CREATE POLICY "messages_insert_sender"
   FOR INSERT
   TO authenticated
   WITH CHECK (
-    sender_id = auth.uid()
+    sender_id = (select auth.uid())
     AND EXISTS (
       SELECT 1
       FROM public.matches m
       WHERE m.id = messages.match_id
         AND m.is_active = true
-        AND auth.uid() IN (m.user_a, m.user_b)
+        AND (select auth.uid()) IN (m.user_a, m.user_b)
         AND NOT public.is_blocked_between(m.user_a, m.user_b)
     )
   );
@@ -493,18 +493,18 @@ CREATE POLICY "messages_update_read_receipt"
   FOR UPDATE
   TO authenticated
   USING (
-    sender_id <> auth.uid()
+    sender_id <> (select auth.uid())
     AND EXISTS (
       SELECT 1
       FROM public.matches m
       WHERE m.id = messages.match_id
         AND m.is_active = true
-        AND auth.uid() IN (m.user_a, m.user_b)
+        AND (select auth.uid()) IN (m.user_a, m.user_b)
         AND NOT public.is_blocked_between(m.user_a, m.user_b)
     )
   )
   WITH CHECK (
-    sender_id <> auth.uid()
+    sender_id <> (select auth.uid())
   );
 
 CREATE POLICY "messages_deny_delete"
@@ -521,11 +521,11 @@ CREATE POLICY "duo_lobbies_select_active"
   FOR SELECT
   TO authenticated
   USING (
-    host_id = auth.uid()
+    host_id = (select auth.uid())
     OR (
       is_open = true
       AND expires_at > now()
-      AND NOT public.is_blocked_between(auth.uid(), host_id)
+      AND NOT public.is_blocked_between((select auth.uid()), host_id)
     )
   );
 
@@ -533,20 +533,20 @@ CREATE POLICY "duo_lobbies_insert_own"
   ON public.duo_lobbies
   FOR INSERT
   TO authenticated
-  WITH CHECK (host_id = auth.uid());
+  WITH CHECK (host_id = (select auth.uid()));
 
 CREATE POLICY "duo_lobbies_update_own"
   ON public.duo_lobbies
   FOR UPDATE
   TO authenticated
-  USING (host_id = auth.uid())
-  WITH CHECK (host_id = auth.uid());
+  USING (host_id = (select auth.uid()))
+  WITH CHECK (host_id = (select auth.uid()));
 
 CREATE POLICY "duo_lobbies_delete_own"
   ON public.duo_lobbies
   FOR DELETE
   TO authenticated
-  USING (host_id = auth.uid());
+  USING (host_id = (select auth.uid()));
 
 -- -----------------------------------------------------------------------------
 -- 5.10 BLOCKS (Private to blocker; blocked user cannot enumerate)
@@ -555,15 +555,15 @@ CREATE POLICY "blocks_select_own"
   ON public.blocks
   FOR SELECT
   TO authenticated
-  USING (blocker_id = auth.uid());
+  USING (blocker_id = (select auth.uid()));
 
 CREATE POLICY "blocks_insert_own"
   ON public.blocks
   FOR INSERT
   TO authenticated
   WITH CHECK (
-    blocker_id = auth.uid()
-    AND blocked_id <> auth.uid()
+    blocker_id = (select auth.uid())
+    AND blocked_id <> (select auth.uid())
   );
 
 CREATE POLICY "blocks_deny_update"
@@ -577,7 +577,7 @@ CREATE POLICY "blocks_delete_own"
   ON public.blocks
   FOR DELETE
   TO authenticated
-  USING (blocker_id = auth.uid());
+  USING (blocker_id = (select auth.uid()));
 
 -- -----------------------------------------------------------------------------
 -- 5.11 REPORTS (Private to reporter; immutable audit trail)
@@ -586,15 +586,15 @@ CREATE POLICY "reports_select_own"
   ON public.reports
   FOR SELECT
   TO authenticated
-  USING (reporter_id = auth.uid());
+  USING (reporter_id = (select auth.uid()));
 
 CREATE POLICY "reports_insert_own"
   ON public.reports
   FOR INSERT
   TO authenticated
   WITH CHECK (
-    reporter_id = auth.uid()
-    AND reported_id <> auth.uid()
+    reporter_id = (select auth.uid())
+    AND reported_id <> (select auth.uid())
   );
 
 CREATE POLICY "reports_deny_update"
@@ -617,26 +617,26 @@ CREATE POLICY "user_key_backups_select_own"
   ON public.user_key_backups
   FOR SELECT
   TO authenticated
-  USING (user_id = auth.uid());
+  USING (user_id = (select auth.uid()));
 
 CREATE POLICY "user_key_backups_insert_own"
   ON public.user_key_backups
   FOR INSERT
   TO authenticated
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (user_id = (select auth.uid()));
 
 CREATE POLICY "user_key_backups_update_own"
   ON public.user_key_backups
   FOR UPDATE
   TO authenticated
-  USING (user_id = auth.uid())
-  WITH CHECK (user_id = auth.uid());
+  USING (user_id = (select auth.uid()))
+  WITH CHECK (user_id = (select auth.uid()));
 
 CREATE POLICY "user_key_backups_delete_own"
   ON public.user_key_backups
   FOR DELETE
   TO authenticated
-  USING (user_id = auth.uid());
+  USING (user_id = (select auth.uid()));
 
 -- -----------------------------------------------------------------------------
 -- 6. STORAGE BUCKET RLS (avatars: folder-scoped by auth.uid(), guarded if schema exists)
@@ -659,56 +659,59 @@ BEGIN
             allowed_mime_types = EXCLUDED.allowed_mime_types;
     END IF;
 
-    DROP POLICY IF EXISTS "avatars_select_authenticated" ON storage.objects;
-    DROP POLICY IF EXISTS "avatars_insert_own_folder" ON storage.objects;
-    DROP POLICY IF EXISTS "avatars_update_own_folder" ON storage.objects;
-    DROP POLICY IF EXISTS "avatars_delete_own_folder" ON storage.objects;
-
-    CREATE POLICY "avatars_select_authenticated"
-      ON storage.objects
-      FOR SELECT
-      TO authenticated
-      USING (
-        bucket_id = 'avatars'
-        AND (
-          (storage.foldername(name))[1] = auth.uid()::text
-          OR (
-            (storage.foldername(name))[1] ~ '^[0-9a-fA-F-]{36}$'
-            AND NOT public.is_blocked_between(auth.uid(), ((storage.foldername(name))[1])::uuid)
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'avatars_select_authenticated') THEN
+      CREATE POLICY "avatars_select_authenticated"
+        ON storage.objects
+        FOR SELECT
+        TO authenticated
+        USING (
+          bucket_id = 'avatars'
+          AND (
+            (storage.foldername(name))[1] = (select auth.uid())::text
+            OR (
+              (storage.foldername(name))[1] ~ '^[0-9a-fA-F-]{36}$'
+              AND NOT public.is_blocked_between((select auth.uid()), ((storage.foldername(name))[1])::uuid)
+            )
           )
+        );
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'avatars_insert_own_folder') THEN
+      CREATE POLICY "avatars_insert_own_folder"
+        ON storage.objects
+        FOR INSERT
+        TO authenticated
+        WITH CHECK (
+          bucket_id = 'avatars'
+          AND (storage.foldername(name))[1] = (select auth.uid())::text
+        );
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'avatars_update_own_folder') THEN
+      CREATE POLICY "avatars_update_own_folder"
+        ON storage.objects
+        FOR UPDATE
+        TO authenticated
+        USING (
+          bucket_id = 'avatars'
+          AND (storage.foldername(name))[1] = (select auth.uid())::text
         )
-      );
+        WITH CHECK (
+          bucket_id = 'avatars'
+          AND (storage.foldername(name))[1] = (select auth.uid())::text
+        );
+    END IF;
 
-    CREATE POLICY "avatars_insert_own_folder"
-      ON storage.objects
-      FOR INSERT
-      TO authenticated
-      WITH CHECK (
-        bucket_id = 'avatars'
-        AND (storage.foldername(name))[1] = auth.uid()::text
-      );
-
-    CREATE POLICY "avatars_update_own_folder"
-      ON storage.objects
-      FOR UPDATE
-      TO authenticated
-      USING (
-        bucket_id = 'avatars'
-        AND (storage.foldername(name))[1] = auth.uid()::text
-      )
-      WITH CHECK (
-        bucket_id = 'avatars'
-        AND (storage.foldername(name))[1] = auth.uid()::text
-      );
-
-    CREATE POLICY "avatars_delete_own_folder"
-      ON storage.objects
-      FOR DELETE
-      TO authenticated
-      USING (
-        bucket_id = 'avatars'
-        AND (storage.foldername(name))[1] = auth.uid()::text
-      );
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'avatars_delete_own_folder') THEN
+      CREATE POLICY "avatars_delete_own_folder"
+        ON storage.objects
+        FOR DELETE
+        TO authenticated
+        USING (
+          bucket_id = 'avatars'
+          AND (storage.foldername(name))[1] = (select auth.uid())::text
+        );
+    END IF;
   END IF;
 END
 $$;

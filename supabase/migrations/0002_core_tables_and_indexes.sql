@@ -28,8 +28,8 @@ CREATE TABLE IF NOT EXISTS public.profiles (
                             CONSTRAINT profiles_gamer_dna_obj_chk CHECK (jsonb_typeof(gamer_dna) = 'object'),
   schedule_mask           bigint[3] NOT NULL DEFAULT ARRAY[0::bigint, 0::bigint, 0::bigint]
                             CONSTRAINT profiles_schedule_mask_len_chk CHECK (array_length(schedule_mask, 1) = 3),
-  dna_embedding           vector(128),
-  approx_location         geography(Point, 4326),
+  dna_embedding           extensions.vector(128),
+  approx_location         extensions.geography(Point, 4326),
   city_label              text NOT NULL DEFAULT ''
                             CONSTRAINT profiles_city_label_len_chk CHECK (char_length(city_label) <= 80),
   is_liveness_verified    boolean NOT NULL DEFAULT false,
@@ -257,7 +257,7 @@ CREATE INDEX IF NOT EXISTS idx_profiles_location
 
 -- pgvector HNSW cosine semantic similarity O(log N)
 CREATE INDEX IF NOT EXISTS idx_profiles_dna_hnsw
-  ON public.profiles USING hnsw (dna_embedding vector_cosine_ops);
+  ON public.profiles USING hnsw (dna_embedding extensions.vector_cosine_ops);
 
 -- Partial index for active discovery pool recency scan
 CREATE INDEX IF NOT EXISTS idx_profiles_active_last_seen
@@ -266,7 +266,7 @@ CREATE INDEX IF NOT EXISTS idx_profiles_active_last_seen
 
 -- Trigram GIN fuzzy autocomplete on game titles (< 5ms)
 CREATE INDEX IF NOT EXISTS idx_games_title_trgm
-  ON public.games_catalog USING GIN (title gin_trgm_ops);
+  ON public.games_catalog USING GIN (title extensions.gin_trgm_ops);
 
 -- Cursor-based chat pagination O(log N)
 CREATE INDEX IF NOT EXISTS idx_messages_match_created
