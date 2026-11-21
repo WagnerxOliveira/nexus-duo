@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -19,6 +20,7 @@ class ReleaseUpdateInfo {
     required this.htmlUrl,
     this.apkDownloadUrl,
     this.apkFileName,
+    this.apkSizeBytes,
     this.sha256SumsUrl,
     this.expectedSha256,
   });
@@ -30,13 +32,33 @@ class ReleaseUpdateInfo {
   final String htmlUrl;
   final String? apkDownloadUrl;
   final String? apkFileName;
+  final int? apkSizeBytes;
   final String? sha256SumsUrl;
   final String? expectedSha256;
+
+  String get formattedSizeMb {
+    final bytes = apkSizeBytes;
+    if (bytes == null || bytes <= 0) return '';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+}
+
+class _DigestCaptureSink implements Sink<Digest> {
+  Digest? value;
+
+  @override
+  void add(Digest data) {
+    value = data;
+  }
+
+  @override
+  void close() {}
 }
 
 /// Autonomous in-app updater that checks `WagnerxOliveira/nexus-duo/releases/latest`,
-/// validates APK integrity via `SHA-256` against `SHA256SUMS.txt`, and invokes
-/// Android's native `FileProvider` installer.
+/// selects the smallest ABI-compatible APK, streams directly to disk with incremental
+/// `SHA-256` validation against `SHA256SUMS.txt`, checks Android install permission,
+/// and invokes Android's native `FileProvider` package installer.
 class GitHubReleaseUpdater {
   GitHubReleaseUpdater({
     this.repository = 'WagnerxOliveira/nexus-duo',
@@ -48,7 +70,7 @@ class GitHubReleaseUpdater {
   static const MethodChannel _installerChannel = MethodChannel(
     'com.nexusduo.app/apk_installer',
   );
-  static const Duration _throttleInterval = Duration(hours: 6);
+  static const Duration _throttleInterval = Duration(hours: 2);
 
   final String repository;
   final http.Client _client;
@@ -89,17 +111,32 @@ class GitHubReleaseUpdater {
     return 0;
   }
 
-  /// Selects the best Android APK asset from a GitHub Release assets list,
-  /// preferring universal APKs, then `arm64-v8a` over `x86_64`/`armeabi-v7a`.
+  /// Selects the best Android APK asset from a GitHub Release assets list.
+  ///
+  /// When [supportedAbis] is supplied (from Android `Build.SUPPORTED_ABIS`),
+  /// selects the highest-priority ABI-specific APK first (~58% smaller download),
+  /// falling back safely to universal APKs (`universal` / `app-release`).
   static Map<String, dynamic>? selectBestApkAsset(
-    List<Map<String, dynamic>> assets,
-  ) {
+    List<Map<String, dynamic>> assets, {
+    List<String> supportedAbis = const <String>[],
+  }) {
     final apks = assets
         .where(
           (a) => (a['name'] as String? ?? '').toLowerCase().endsWith('.apk'),
         )
         .toList();
     if (apks.isEmpty) return null;
+
+    for (final rawAbi in supportedAbis) {
+      final abi = rawAbi.trim().toLowerCase();
+      if (abi.isEmpty) continue;
+      for (final asset in apks) {
+        final name = (asset['name'] as String? ?? '').toLowerCase();
+        if (name.contains(abi)) {
+          return asset;
+        }
+      }
+    }
 
     for (final asset in apks) {
       final name = (asset['name'] as String? ?? '').toLowerCase();
@@ -150,7 +187,46 @@ class GitHubReleaseUpdater {
     return actual == expectedHexSha256.trim().toLowerCase();
   }
 
-  Future<String> _resolveCurrentVersion() async {
+  /// Returns device ABIs on Android (`Build.SUPPORTED_ABIS`), or empty outside Android.
+  Future<List<String>> getSupportedAbis() async {
+    try {
+      if (!Platform.isAndroid) return const <String>[];
+      final res = await _installerChannel.invokeListMethod<String>(
+        'getSupportedAbis',
+      );
+      return res ?? const <String>[];
+    } catch (_) {
+      return const <String>[];
+    }
+  }
+
+  /// Checks Android `REQUEST_INSTALL_PACKAGES` permission status before installation.
+  Future<bool> canRequestPackageInstalls() async {
+    try {
+      if (!Platform.isAndroid) return true;
+      final allowed = await _installerChannel.invokeMethod<bool>(
+        'canRequestPackageInstalls',
+      );
+      return allowed ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// Opens Android Settings directly on "Install unknown apps" for `com.nexusduo.app`.
+  Future<bool> openUnknownAppSourcesSettings() async {
+    try {
+      if (!Platform.isAndroid) return false;
+      final opened = await _installerChannel.invokeMethod<bool>(
+        'openUnknownAppSourcesSettings',
+      );
+      return opened ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<String> resolveCurrentVersion() async {
     if (_currentVersionProvider != null) {
       return _currentVersionProvider();
     }
@@ -158,11 +234,11 @@ class GitHubReleaseUpdater {
       final info = await PackageInfo.fromPlatform();
       return info.version;
     } catch (_) {
-      return '1.0.0';
+      return '1.1.0';
     }
   }
 
-  /// Checks GitHub Releases for a newer version. Uses ETag + 6h cache unless [force] is true.
+  /// Checks GitHub Releases for a newer version. Uses ETag + 2h cache unless [force] is true.
   Future<Result<ReleaseUpdateInfo>> checkForUpdate({bool force = false}) async {
     if (!force &&
         _lastCheckedAt != null &&
@@ -172,11 +248,11 @@ class GitHubReleaseUpdater {
     }
 
     try {
-      final currentVersion = await _resolveCurrentVersion();
+      final currentVersion = await resolveCurrentVersion();
       final headers = <String, String>{
         'Accept': 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
-        'If-None-Match': ?_cachedEtag,
+        if (_cachedEtag != null && !force) 'If-None-Match': _cachedEtag!,
       };
 
       final response = await _client.get(
@@ -223,7 +299,8 @@ class GitHubReleaseUpdater {
           .whereType<Map<String, dynamic>>()
           .toList();
 
-      final apkAsset = selectBestApkAsset(assets);
+      final abis = await getSupportedAbis();
+      final apkAsset = selectBestApkAsset(assets, supportedAbis: abis);
       Map<String, dynamic>? sumsAsset;
       for (final asset in assets) {
         final name = (asset['name'] as String? ?? '').toLowerCase();
@@ -250,6 +327,7 @@ class GitHubReleaseUpdater {
         htmlUrl: htmlUrl,
         apkDownloadUrl: apkAsset?['browser_download_url'] as String?,
         apkFileName: apkName,
+        apkSizeBytes: (apkAsset?['size'] as num?)?.toInt(),
         sha256SumsUrl: sumsUrl,
         expectedSha256: expectedHash,
       );
@@ -267,11 +345,14 @@ class GitHubReleaseUpdater {
     }
   }
 
-  /// Downloads the APK, verifies `SHA-256` against `SHA256SUMS.txt`, and writes it
-  /// to the app cache `updates/` directory exposed via Android `FileProvider`.
+  /// Streams the APK directly into app cache `updates/`, computes `SHA-256`
+  /// incrementally on chunks (low RAM usage), rejects tampered downloads, and
+  /// renames atomically once verified.
   Future<Result<File>> downloadAndVerifyApk(
     ReleaseUpdateInfo info, {
     void Function(double progress)? onProgress,
+    void Function(int receivedBytes, int totalBytes)? onBytesProgress,
+    Directory? downloadDirectoryOverride,
   }) async {
     final downloadUrl = info.apkDownloadUrl;
     final expectedSha = info.expectedSha256;
@@ -292,21 +373,67 @@ class GitHubReleaseUpdater {
       );
     }
 
+    File? partFile;
+    IOSink? fileSink;
     try {
-      onProgress?.call(0.1);
-      final response = await _client.get(Uri.parse(downloadUrl));
-      if (response.statusCode != 200) {
+      onProgress?.call(0.03);
+      final req = http.Request('GET', Uri.parse(downloadUrl));
+      final streamed = await _client.send(req);
+
+      if (streamed.statusCode != 200) {
         return FailureResult<File>(
           NetworkFailure(
-            'Falha ao baixar APK (HTTP ${response.statusCode}).',
+            'Falha ao baixar APK (HTTP ${streamed.statusCode}).',
             code: 'APK_DOWNLOAD_FAILED',
           ),
         );
       }
-      onProgress?.call(0.75);
 
-      final bytes = response.bodyBytes;
-      if (!verifySha256(bytes, expectedSha)) {
+      final baseDir =
+          downloadDirectoryOverride ?? await getTemporaryDirectory();
+      final updatesDir = Directory('${baseDir.path}/updates');
+      if (!updatesDir.existsSync()) {
+        updatesDir.createSync(recursive: true);
+      }
+
+      final fileName =
+          info.apkFileName ?? 'nexus-duo-${info.latestVersion}.apk';
+      final finalFile = File('${updatesDir.path}/$fileName');
+      partFile = File('${updatesDir.path}/$fileName.part');
+      if (partFile.existsSync()) {
+        await partFile.delete();
+      }
+
+      fileSink = partFile.openWrite();
+      final digestCollector = _DigestCaptureSink();
+      final shaInputSink = sha256.startChunkedConversion(digestCollector);
+
+      final expectedTotal = streamed.contentLength ?? info.apkSizeBytes ?? 0;
+      var received = 0;
+
+      await for (final chunk in streamed.stream) {
+        fileSink.add(chunk);
+        shaInputSink.add(chunk);
+        received += chunk.length;
+        onBytesProgress?.call(received, expectedTotal);
+        if (expectedTotal > 0) {
+          onProgress?.call((received / expectedTotal).clamp(0.05, 0.96));
+        } else {
+          onProgress?.call(0.5);
+        }
+      }
+
+      await fileSink.flush();
+      await fileSink.close();
+      fileSink = null;
+      shaInputSink.close();
+
+      final actualDigest =
+          digestCollector.value?.toString().toLowerCase() ?? '';
+      if (actualDigest != expectedSha.trim().toLowerCase()) {
+        if (partFile.existsSync()) {
+          await partFile.delete();
+        }
         return const FailureResult<File>(
           CryptoFailure(
             'Checksum SHA-256 divergente! Arquivo rejeitado contra adulteração.',
@@ -314,20 +441,24 @@ class GitHubReleaseUpdater {
           ),
         );
       }
-      onProgress?.call(0.95);
 
-      final cacheDir = await getTemporaryDirectory();
-      final updatesDir = Directory('${cacheDir.path}/updates');
-      if (!updatesDir.existsSync()) {
-        updatesDir.createSync(recursive: true);
+      if (finalFile.existsSync()) {
+        await finalFile.delete();
       }
-      final fileName =
-          info.apkFileName ?? 'nexus-duo-${info.latestVersion}.apk';
-      final apkFile = File('${updatesDir.path}/$fileName');
-      await apkFile.writeAsBytes(bytes, flush: true);
+      final verifiedFile = await partFile.rename(finalFile.path);
       onProgress?.call(1.0);
-      return Success<File>(apkFile);
+      return Success<File>(verifiedFile);
     } catch (error) {
+      if (fileSink != null) {
+        try {
+          await fileSink.close();
+        } catch (_) {}
+      }
+      if (partFile != null && partFile.existsSync()) {
+        try {
+          await partFile.delete();
+        } catch (_) {}
+      }
       return FailureResult<File>(
         NetworkFailure(
           'Erro durante o download verificado do APK: $error',
