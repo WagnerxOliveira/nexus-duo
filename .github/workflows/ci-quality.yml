@@ -1,0 +1,142 @@
+name: CI Quality & Zero-Trust Security Gate
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # -------------------------------------------------------------
+  # Job 1: Design Tokens & Contracts Synchronicity
+  # -------------------------------------------------------------
+  tokens-and-contracts:
+    name: 🎨 Design Tokens & E2EE Golden Vectors
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: 'packages/design-tokens/package.json'
+
+      - name: Verify Design Tokens Build & Freshness
+        run: |
+          node packages/design-tokens/build-tokens.mjs
+          if [ -n "$(git status --porcelain packages/design-tokens/dist)" ]; then
+            echo "::error::Design tokens in dist/ are out of sync with tokens.json. Run 'node packages/design-tokens/build-tokens.mjs' locally!"
+            git diff packages/design-tokens/dist
+            exit 1
+          fi
+
+      - name: Validate E2EE Crypto Golden Vectors (Dart <-> WebCrypto Interop)
+        run: |
+          node scripts/verify-e2ee-interop.mjs
+
+  # -------------------------------------------------------------
+  # Job 2: Supabase Migrations, RLS & Zero-Trust Audit
+  # -------------------------------------------------------------
+  supabase-security-audit:
+    name: 🛡️ Supabase SQL & Zero-Trust Client Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run Static Security & RLS Audit
+        run: |
+          node scripts/check-sql-security.mjs
+
+  # -------------------------------------------------------------
+  # Job 3: Mobile (Flutter) Quality Gate
+  # -------------------------------------------------------------
+  mobile-qa:
+    name: 📱 Flutter Mobile QA (Dart Analyze & Tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter 3.47.5
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: 'stable'
+          cache: true
+
+      - name: Verify Flutter Doctor
+        run: flutter doctor -v
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Check Formatting (dart format)
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: Static Analysis (flutter analyze)
+        run: flutter analyze
+
+      - name: Run Unit & Widget Tests with Coverage
+        run: flutter test --coverage
+
+  # -------------------------------------------------------------
+  # Job 4: Web (Next.js) Quality Gate
+  # -------------------------------------------------------------
+  web-qa:
+    name: 🌐 Web Next.js QA (Lint, TypeCheck & Vitest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: 'apps/web/package-lock.json'
+
+      - name: Install Web Dependencies
+        run: npm ci
+
+      - name: ESLint Check
+        run: npm run lint
+
+      - name: TypeScript Typecheck
+        run: npm run typecheck
+
+      - name: Run Vitest Unit Tests
+        run: npm run test -- --run
+
+      - name: Build Next.js Application
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co' }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key' }}
+          NEXT_PUBLIC_APP_URL: 'http://localhost:3000'
