@@ -569,6 +569,29 @@ class DemoSeedAuthRepository implements IAuthRepository {
   }
 
   @override
+  Future<Result<AuthSession>> signUpWithEmail({
+    required String email,
+    required String password,
+  }) async {
+    if (!email.contains('@') || password.length < 8) {
+      return const FailureResult<AuthSession>(
+        ValidationFailure(
+          'Informe um email válido e senha com pelo menos 8 caracteres.',
+        ),
+      );
+    }
+    final session = AuthSession(
+      userId: _store.myProfile.id,
+      email: email.trim(),
+      provider: 'email_demo',
+      isDemo: true,
+      hasCompletedOnboarding: false,
+    );
+    _store.session = session;
+    return Success<AuthSession>(session);
+  }
+
+  @override
   Future<Result<AuthSession>> enterDemoMode() async {
     final session = AuthSession(
       userId: _store.myProfile.id,

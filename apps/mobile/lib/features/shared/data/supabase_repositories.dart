@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/crypto/e2ee_cipher.dart';
 import '../../../core/domain/value_objects/gamer_age.dart';
+import '../../../core/domain/value_objects/profile_db_normalizer.dart';
 import '../../../core/domain/value_objects/weekly_schedule_mask.dart';
 import '../../../core/errors/app_failure.dart';
 import '../../../core/media/avatar_photo_sanitizer.dart';
@@ -102,10 +103,63 @@ class SupabaseAuthRepository implements IAuthRepository {
   }
 
   @override
+  Future<Result<AuthSession>> signUpWithEmail({
+    required String email,
+    required String password,
+  }) async {
+    try {
+      final cleanEmail = email.trim();
+      if (!cleanEmail.contains('@') || password.length < 8) {
+        return const FailureResult<AuthSession>(
+          ValidationFailure(
+            'Informe um email válido e senha com 8+ caracteres (letras e números).',
+          ),
+        );
+      }
+      final res = await _client.auth.signUp(
+        email: cleanEmail,
+        password: password,
+        emailRedirectTo: _redirectUrl,
+      );
+      final user = res.user;
+      if (user == null) {
+        return const FailureResult<AuthSession>(
+          AuthFailure('Não foi possível criar a conta no momento.'),
+        );
+      }
+      if (res.session == null) {
+        return const FailureResult<AuthSession>(
+          AuthFailure(
+            'Conta criada! Confirme o link enviado ao seu email para entrar.',
+            code: 'AUTH_CONFIRM_EMAIL',
+          ),
+        );
+      }
+      final session = await currentSession();
+      return Success<AuthSession>(
+        session ??
+            AuthSession(
+              userId: user.id,
+              email: user.email ?? cleanEmail,
+              provider: 'email',
+              isDemo: false,
+              hasCompletedOnboarding: false,
+            ),
+      );
+    } on AuthException catch (e) {
+      return FailureResult<AuthSession>(AuthFailure(e.message));
+    } catch (e) {
+      return FailureResult<AuthSession>(
+        NetworkFailure('Erro ao criar conta: $e'),
+      );
+    }
+  }
+
+  @override
   Future<Result<AuthSession>> enterDemoMode() async {
     return const FailureResult<AuthSession>(
       AuthFailure(
-        'Modo Demo disponível apenas quando SUPABASE_URL não está configurado.',
+        'Ative runtimeDemoOverrideProvider para entrar no Modo Demo em build cloud.',
       ),
     );
   }
@@ -166,13 +220,24 @@ class SupabaseProfileRepository implements IProfileRepository {
         platforms: profile.platforms,
       );
 
+      final normalizedUsername = ProfileDbNormalizer.normalizeUsername(
+        profile.username,
+        userId: uid,
+      );
+      final normalizedGender = ProfileDbNormalizer.normalizeGender(
+        profile.gender,
+      );
+      final normalizedInterestedIn = ProfileDbNormalizer.normalizeInterestedIn(
+        profile.interestedIn,
+      );
+
       await _client.from('profiles').upsert(<String, dynamic>{
         'id': uid,
-        'username': profile.username,
-        'display_name': profile.displayName,
+        'username': normalizedUsername,
+        'display_name': profile.displayName.trim(),
         'birth_date': profile.age.birthDate.toIso8601String().split('T').first,
-        'gender': profile.gender,
-        'interested_in': profile.interestedIn,
+        'gender': normalizedGender,
+        'interested_in': normalizedInterestedIn,
         'bio': profile.bio,
         'city_label': profile.cityLabel,
         'gamer_dna': <String, dynamic>{

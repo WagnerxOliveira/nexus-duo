@@ -89,6 +89,41 @@ class GitHubReleaseUpdater {
     return 0;
   }
 
+  /// Selects the best Android APK asset from a GitHub Release assets list,
+  /// preferring universal APKs, then `arm64-v8a` over `x86_64`/`armeabi-v7a`.
+  static Map<String, dynamic>? selectBestApkAsset(
+    List<Map<String, dynamic>> assets,
+  ) {
+    final apks = assets
+        .where(
+          (a) => (a['name'] as String? ?? '').toLowerCase().endsWith('.apk'),
+        )
+        .toList();
+    if (apks.isEmpty) return null;
+
+    for (final asset in apks) {
+      final name = (asset['name'] as String? ?? '').toLowerCase();
+      if (name.contains('universal') || name.contains('app-release')) {
+        return asset;
+      }
+    }
+    for (final asset in apks) {
+      final name = (asset['name'] as String? ?? '').toLowerCase();
+      if (!name.contains('x86') &&
+          !name.contains('arm64') &&
+          !name.contains('armeabi')) {
+        return asset;
+      }
+    }
+    for (final asset in apks) {
+      final name = (asset['name'] as String? ?? '').toLowerCase();
+      if (name.contains('arm64')) {
+        return asset;
+      }
+    }
+    return apks.first;
+  }
+
   /// Parses `SHA256SUMS.txt` content (`<64-hex-hash>  <filename>`) and extracts
   /// the expected SHA-256 hash matching [apkFileName].
   static String? parseSha256ForAsset(String sumsContent, String apkFileName) {
@@ -188,13 +223,11 @@ class GitHubReleaseUpdater {
           .whereType<Map<String, dynamic>>()
           .toList();
 
-      Map<String, dynamic>? apkAsset;
+      final apkAsset = selectBestApkAsset(assets);
       Map<String, dynamic>? sumsAsset;
       for (final asset in assets) {
         final name = (asset['name'] as String? ?? '').toLowerCase();
-        if (name.endsWith('.apk') && apkAsset == null) {
-          apkAsset = asset;
-        } else if (name.contains('sha256') && sumsAsset == null) {
+        if (name.contains('sha256') && sumsAsset == null) {
           sumsAsset = asset;
         }
       }
