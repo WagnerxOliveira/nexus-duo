@@ -35,15 +35,17 @@ jobs:
           ACTOR: ${{ github.actor }}
         run: |
           COMMIT_MSG=$(git log -1 --pretty=%B)
-          if [ "$ACTOR" = "github-actions[bot]" ]; then
-            echo "Skipping release: commit authored by github-actions[bot]."
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if echo "$COMMIT_MSG" | grep -qiE '(\[skip release\]|\[skip ci\]|\[no release\]|^chore\(release\):)'; then
-            echo "Skipping release due to commit guard marker."
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-            exit 0
+          if [ "$GITHUB_EVENT_NAME" != "workflow_dispatch" ]; then
+            if [ "$ACTOR" = "github-actions[bot]" ]; then
+              echo "Skipping release: commit authored by github-actions[bot]."
+              echo "should_release=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if echo "$COMMIT_MSG" | grep -qiE '(\[skip release\]|\[skip ci\]|\[no release\]|^chore\(release\): bump mobile)'; then
+              echo "Skipping release due to automated release or skip marker."
+              echo "should_release=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
           echo "Auto-release enabled for this commit on main."
           echo "should_release=true" >> "$GITHUB_OUTPUT"
