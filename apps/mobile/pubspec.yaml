@@ -1,7 +1,7 @@
 name: nexus_duo
 description: "NEXUS DUO — App de relacionamento gamer com arquitetura Clean, E2EE e Design System Cyber-Velvet."
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.0.1+2
 
 environment:
   sdk: ">=3.10.0 <4.0.0"

@@ -17,13 +17,17 @@ final appConfigProvider = Provider<AppConfig>((ref) {
   return AppConfig.fromEnvironment();
 });
 
+/// Allows users on cloud-configured APKs to explore Demo Mode at runtime.
+final runtimeDemoOverrideProvider = StateProvider<bool>((ref) => false);
+
 final demoSeedStoreProvider = Provider<DemoSeedStore>((ref) {
   return DemoSeedStore();
 });
 
 final messageCipherProvider = Provider<IMessageCipher>((ref) {
   final config = ref.watch(appConfigProvider);
-  if (config.isDemoMode) {
+  final useDemo = config.isDemoMode || ref.watch(runtimeDemoOverrideProvider);
+  if (useDemo) {
     return ref.watch(demoSeedStoreProvider).myCipher;
   }
   return AesGcmE2EECipher(keyVault: FlutterSecureKeyVault());
@@ -31,7 +35,8 @@ final messageCipherProvider = Provider<IMessageCipher>((ref) {
 
 final authRepositoryProvider = Provider<IAuthRepository>((ref) {
   final config = ref.watch(appConfigProvider);
-  if (config.isSupabaseConfigured) {
+  final useDemo = config.isDemoMode || ref.watch(runtimeDemoOverrideProvider);
+  if (!useDemo) {
     return SupabaseAuthRepository(sb.Supabase.instance.client);
   }
   return DemoSeedAuthRepository(ref.watch(demoSeedStoreProvider));
@@ -39,7 +44,8 @@ final authRepositoryProvider = Provider<IAuthRepository>((ref) {
 
 final profileRepositoryProvider = Provider<IProfileRepository>((ref) {
   final config = ref.watch(appConfigProvider);
-  if (config.isSupabaseConfigured) {
+  final useDemo = config.isDemoMode || ref.watch(runtimeDemoOverrideProvider);
+  if (!useDemo) {
     return SupabaseProfileRepository(
       sb.Supabase.instance.client,
       ref.watch(messageCipherProvider),
@@ -50,7 +56,8 @@ final profileRepositoryProvider = Provider<IProfileRepository>((ref) {
 
 final discoveryRepositoryProvider = Provider<IDiscoveryRepository>((ref) {
   final config = ref.watch(appConfigProvider);
-  if (config.isSupabaseConfigured) {
+  final useDemo = config.isDemoMode || ref.watch(runtimeDemoOverrideProvider);
+  if (!useDemo) {
     return SupabaseDiscoveryRepository(sb.Supabase.instance.client);
   }
   return DemoSeedDiscoveryRepository(ref.watch(demoSeedStoreProvider));
@@ -58,7 +65,8 @@ final discoveryRepositoryProvider = Provider<IDiscoveryRepository>((ref) {
 
 final lobbyRepositoryProvider = Provider<ILobbyRepository>((ref) {
   final config = ref.watch(appConfigProvider);
-  if (config.isSupabaseConfigured) {
+  final useDemo = config.isDemoMode || ref.watch(runtimeDemoOverrideProvider);
+  if (!useDemo) {
     return SupabaseLobbyRepository(sb.Supabase.instance.client);
   }
   return DemoSeedLobbyRepository(ref.watch(demoSeedStoreProvider));
@@ -66,7 +74,8 @@ final lobbyRepositoryProvider = Provider<ILobbyRepository>((ref) {
 
 final chatRepositoryProvider = Provider<IChatRepository>((ref) {
   final config = ref.watch(appConfigProvider);
-  if (config.isSupabaseConfigured) {
+  final useDemo = config.isDemoMode || ref.watch(runtimeDemoOverrideProvider);
+  if (!useDemo) {
     return SupabaseChatRepository(
       sb.Supabase.instance.client,
       ref.watch(messageCipherProvider),

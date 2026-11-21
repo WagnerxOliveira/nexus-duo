@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:nexus_design_tokens/nexus_tokens.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as sb;
 
 import '../../../core/providers/app_providers.dart';
 import '../../../core/widgets/nexus_ui_kit.dart';
@@ -17,21 +20,61 @@ class WelcomeScreen extends ConsumerStatefulWidget {
 class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  StreamSubscription<sb.AuthState>? _authSub;
   bool _showEmailForm = false;
+  bool _isSignUpMode = false;
   bool _isLoading = false;
   String? _errorMessage;
+  bool _isInfoBanner = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _attachSupabaseAuthListener();
+  }
+
+  void _attachSupabaseAuthListener() {
+    final config = ref.read(appConfigProvider);
+    if (!config.isSupabaseConfigured) return;
+    try {
+      final client = sb.Supabase.instance.client;
+      _authSub = client.auth.onAuthStateChange.listen((data) {
+        if (!mounted) return;
+        if (data.event == sb.AuthChangeEvent.signedIn &&
+            data.session != null &&
+            !ref.read(runtimeDemoOverrideProvider)) {
+          _syncSessionAndNavigate();
+        }
+      });
+      if (client.auth.currentSession != null) {
+        Future<void>.microtask(_syncSessionAndNavigate);
+      }
+    } catch (_) {
+      // Safe no-op when Supabase singleton is not initialized (e.g. widget tests).
+    }
+  }
+
+  Future<void> _syncSessionAndNavigate() async {
+    final session = await ref.read(authRepositoryProvider).currentSession();
+    if (!mounted || session == null) return;
+    ref.read(authSessionProvider.notifier).state = session;
+    context.go(session.hasCompletedOnboarding ? '/app' : '/onboarding');
+  }
 
   @override
   void dispose() {
+    _authSub?.cancel();
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
   Future<void> _handleDiscordLogin() async {
+    ref.read(runtimeDemoOverrideProvider.notifier).state = false;
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _isInfoBanner = false;
     });
     final res = await ref.read(authRepositoryProvider).signInWithDiscord();
     if (!mounted) return;
@@ -42,22 +85,33 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
         context.go(session.hasCompletedOnboarding ? '/app' : '/onboarding');
       },
       onFailure: (failure) {
-        setState(() => _errorMessage = failure.message);
+        setState(() {
+          _isInfoBanner = failure.code == 'OAUTH_PENDING';
+          _errorMessage = failure.code == 'OAUTH_PENDING'
+              ? 'Conclua o login com Discord no navegador e retorne ao app.'
+              : failure.message;
+        });
       },
     );
   }
 
-  Future<void> _handleEmailLogin() async {
+  Future<void> _handleEmailSubmit() async {
+    ref.read(runtimeDemoOverrideProvider.notifier).state = false;
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _isInfoBanner = false;
     });
-    final res = await ref
-        .read(authRepositoryProvider)
-        .signInWithEmail(
-          email: _emailController.text,
-          password: _passwordController.text,
-        );
+    final authRepo = ref.read(authRepositoryProvider);
+    final res = _isSignUpMode
+        ? await authRepo.signUpWithEmail(
+            email: _emailController.text,
+            password: _passwordController.text,
+          )
+        : await authRepo.signInWithEmail(
+            email: _emailController.text,
+            password: _passwordController.text,
+          );
     if (!mounted) return;
     setState(() => _isLoading = false);
     res.fold(
@@ -66,15 +120,20 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
         context.go(session.hasCompletedOnboarding ? '/app' : '/onboarding');
       },
       onFailure: (failure) {
-        setState(() => _errorMessage = failure.message);
+        setState(() {
+          _isInfoBanner = failure.code == 'AUTH_CONFIRM_EMAIL';
+          _errorMessage = failure.message;
+        });
       },
     );
   }
 
   Future<void> _handleInstantDemo() async {
+    ref.read(runtimeDemoOverrideProvider.notifier).state = true;
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _isInfoBanner = false;
     });
     final res = await ref.read(authRepositoryProvider).enterDemoMode();
     if (!mounted) return;
@@ -206,6 +265,30 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
                             ),
                             if (_showEmailForm) ...<Widget>[
                               const SizedBox(height: NexusSpacing.md),
+                              Wrap(
+                                spacing: NexusSpacing.sm,
+                                children: <Widget>[
+                                  ChoiceChip(
+                                    label: const Text('Entrar'),
+                                    selected: !_isSignUpMode,
+                                    onSelected: _isLoading
+                                        ? null
+                                        : (_) => setState(
+                                            () => _isSignUpMode = false,
+                                          ),
+                                  ),
+                                  ChoiceChip(
+                                    label: const Text('Criar Conta'),
+                                    selected: _isSignUpMode,
+                                    onSelected: _isLoading
+                                        ? null
+                                        : (_) => setState(
+                                            () => _isSignUpMode = true,
+                                          ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: NexusSpacing.sm),
                               TextField(
                                 controller: _emailController,
                                 keyboardType: TextInputType.emailAddress,
@@ -218,21 +301,27 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
                               TextField(
                                 controller: _passwordController,
                                 obscureText: true,
-                                decoration: const InputDecoration(
+                                decoration: InputDecoration(
                                   labelText: 'Senha',
-                                  hintText: 'Mínimo 6 caracteres',
+                                  hintText: _isSignUpMode
+                                      ? 'Mínimo 8 caracteres (letras e números)'
+                                      : 'Sua senha',
                                 ),
                               ),
                               const SizedBox(height: NexusSpacing.md),
                               FilledButton(
                                 onPressed: _isLoading
                                     ? null
-                                    : _handleEmailLogin,
+                                    : _handleEmailSubmit,
                                 style: FilledButton.styleFrom(
                                   backgroundColor: NexusColors.brandPrimary,
                                   minimumSize: const Size.fromHeight(46),
                                 ),
-                                child: const Text('Entrar com Email'),
+                                child: Text(
+                                  _isSignUpMode
+                                      ? 'Criar Conta com Email'
+                                      : 'Entrar com Email',
+                                ),
                               ),
                             ],
                             const SizedBox(height: NexusSpacing.md),
@@ -252,8 +341,10 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
                               const SizedBox(height: NexusSpacing.sm),
                               Text(
                                 _errorMessage!,
-                                style: const TextStyle(
-                                  color: NexusColors.semanticDanger,
+                                style: TextStyle(
+                                  color: _isInfoBanner
+                                      ? NexusColors.accentCyber
+                                      : NexusColors.semanticDanger,
                                   fontSize: 13,
                                 ),
                               ),

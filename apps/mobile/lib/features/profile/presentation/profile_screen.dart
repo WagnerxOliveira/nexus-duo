@@ -28,6 +28,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   ReleaseUpdateInfo? _updateInfo;
   String? _updateStatus;
   bool _checkingUpdate = false;
+  bool _isDownloadingUpdate = false;
+  double _downloadProgress = 0.0;
   bool _exportingCard = false;
 
   Future<void> _exportShareableCard() async {
@@ -76,6 +78,47 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         onFailure: (failure) => _updateStatus = failure.message,
       );
     });
+  }
+
+  Future<void> _downloadAndInstallUpdate() async {
+    final info = _updateInfo;
+    if (info == null || !info.hasUpdate) return;
+    setState(() {
+      _isDownloadingUpdate = true;
+      _downloadProgress = 0.05;
+      _updateStatus = 'Baixando APK e validando SHA-256...';
+    });
+
+    final updater = ref.read(releaseUpdaterProvider);
+    final downloadRes = await updater.downloadAndVerifyApk(
+      info,
+      onProgress: (p) {
+        if (mounted) setState(() => _downloadProgress = p);
+      },
+    );
+
+    if (!mounted) return;
+    await downloadRes.fold(
+      onSuccess: (apkFile) async {
+        final installRes = await updater.triggerAndroidInstall(apkFile);
+        if (!mounted) return;
+        setState(() {
+          _isDownloadingUpdate = false;
+          _updateStatus = installRes.fold(
+            onSuccess: (launched) => launched
+                ? 'SHA-256 verificado! Instalador Android acionado.'
+                : 'APK validado em ${apkFile.path}.',
+            onFailure: (f) => f.message,
+          );
+        });
+      },
+      onFailure: (failure) async {
+        setState(() {
+          _isDownloadingUpdate = false;
+          _updateStatus = failure.message;
+        });
+      },
+    );
   }
 
   Future<void> _exportLgpdJson() async {
@@ -320,6 +363,24 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           ),
                         ),
                       ],
+                      if (_isDownloadingUpdate) ...<Widget>[
+                        const SizedBox(height: NexusSpacing.sm),
+                        LinearProgressIndicator(
+                          value: _downloadProgress,
+                          color: NexusColors.accentCyber,
+                          backgroundColor: NexusColors.bgElevated,
+                        ),
+                      ],
+                      if ((_updateInfo?.hasUpdate ?? false) &&
+                          !_isDownloadingUpdate) ...<Widget>[
+                        const SizedBox(height: NexusSpacing.md),
+                        NexusGradientButton(
+                          label:
+                              'Baixar e Instalar v${_updateInfo!.latestVersion} (SHA-256)',
+                          icon: Icons.download_for_offline_rounded,
+                          onPressed: _downloadAndInstallUpdate,
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -327,6 +388,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 TextButton.icon(
                   onPressed: () async {
                     await ref.read(authRepositoryProvider).signOut();
+                    ref.read(runtimeDemoOverrideProvider.notifier).state =
+                        false;
                     ref.read(authSessionProvider.notifier).state = null;
                     if (context.mounted) context.go('/welcome');
                   },

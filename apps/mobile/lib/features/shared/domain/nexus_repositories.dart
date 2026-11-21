@@ -30,6 +30,10 @@ abstract interface class IAuthRepository {
     required String email,
     required String password,
   });
+  Future<Result<AuthSession>> signUpWithEmail({
+    required String email,
+    required String password,
+  });
   Future<Result<AuthSession>> enterDemoMode();
   Future<void> signOut();
 }
