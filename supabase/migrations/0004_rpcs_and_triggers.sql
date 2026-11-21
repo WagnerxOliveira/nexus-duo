@@ -1,7 +1,7 @@
 -- =============================================================================
 -- Migration 0004: Zero-Trust RPCs, Matchmaking Engine, LGPD & Integrity Triggers
 -- Project: NEXUS DUO (Zero-Trust Gamer Dating & Duo Platform)
--- Security Rule: EVERY SECURITY DEFINER function declares SET search_path = public, pg_temp
+-- Security Rule: EVERY SECURITY DEFINER function declares SET search_path = public, extensions, pg_temp
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
@@ -10,7 +10,7 @@
 CREATE OR REPLACE FUNCTION public.set_updated_at()
 RETURNS trigger
 LANGUAGE plpgsql
-SET search_path = public, pg_temp
+SET search_path = public, extensions, pg_temp
 AS $$
 BEGIN
   NEW.updated_at := now();
@@ -18,32 +18,27 @@ BEGIN
 END;
 $$;
 
-DROP TRIGGER IF EXISTS trg_profiles_updated_at ON public.profiles;
-CREATE TRIGGER trg_profiles_updated_at
+CREATE OR REPLACE TRIGGER trg_profiles_updated_at
   BEFORE UPDATE ON public.profiles
   FOR EACH ROW
   EXECUTE FUNCTION public.set_updated_at();
 
-DROP TRIGGER IF EXISTS trg_games_catalog_updated_at ON public.games_catalog;
-CREATE TRIGGER trg_games_catalog_updated_at
+CREATE OR REPLACE TRIGGER trg_games_catalog_updated_at
   BEFORE UPDATE ON public.games_catalog
   FOR EACH ROW
   EXECUTE FUNCTION public.set_updated_at();
 
-DROP TRIGGER IF EXISTS trg_user_games_updated_at ON public.user_games;
-CREATE TRIGGER trg_user_games_updated_at
+CREATE OR REPLACE TRIGGER trg_user_games_updated_at
   BEFORE UPDATE ON public.user_games
   FOR EACH ROW
   EXECUTE FUNCTION public.set_updated_at();
 
-DROP TRIGGER IF EXISTS trg_matches_updated_at ON public.matches;
-CREATE TRIGGER trg_matches_updated_at
+CREATE OR REPLACE TRIGGER trg_matches_updated_at
   BEFORE UPDATE ON public.matches
   FOR EACH ROW
   EXECUTE FUNCTION public.set_updated_at();
 
-DROP TRIGGER IF EXISTS trg_user_key_backups_updated_at ON public.user_key_backups;
-CREATE TRIGGER trg_user_key_backups_updated_at
+CREATE OR REPLACE TRIGGER trg_user_key_backups_updated_at
   BEFORE UPDATE ON public.user_key_backups
   FOR EACH ROW
   EXECUTE FUNCTION public.set_updated_at();
@@ -54,7 +49,7 @@ CREATE TRIGGER trg_user_key_backups_updated_at
 CREATE OR REPLACE FUNCTION public.enforce_max_profile_photos()
 RETURNS trigger
 LANGUAGE plpgsql
-SET search_path = public, pg_temp
+SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
   v_count integer;
@@ -74,8 +69,7 @@ BEGIN
 END;
 $$;
 
-DROP TRIGGER IF EXISTS trg_profile_photos_max_four ON public.profile_photos;
-CREATE TRIGGER trg_profile_photos_max_four
+CREATE OR REPLACE TRIGGER trg_profile_photos_max_four
   BEFORE INSERT ON public.profile_photos
   FOR EACH ROW
   EXECUTE FUNCTION public.enforce_max_profile_photos();
@@ -86,7 +80,7 @@ CREATE TRIGGER trg_profile_photos_max_four
 CREATE OR REPLACE FUNCTION public.protect_match_immutable_columns()
 RETURNS trigger
 LANGUAGE plpgsql
-SET search_path = public, pg_temp
+SET search_path = public, extensions, pg_temp
 AS $$
 BEGIN
   IF NEW.user_a <> OLD.user_a
@@ -100,8 +94,7 @@ BEGIN
 END;
 $$;
 
-DROP TRIGGER IF EXISTS trg_matches_protect_immutable ON public.matches;
-CREATE TRIGGER trg_matches_protect_immutable
+CREATE OR REPLACE TRIGGER trg_matches_protect_immutable
   BEFORE UPDATE ON public.matches
   FOR EACH ROW
   EXECUTE FUNCTION public.protect_match_immutable_columns();
@@ -109,7 +102,7 @@ CREATE TRIGGER trg_matches_protect_immutable
 CREATE OR REPLACE FUNCTION public.protect_message_immutable_columns()
 RETURNS trigger
 LANGUAGE plpgsql
-SET search_path = public, pg_temp
+SET search_path = public, extensions, pg_temp
 AS $$
 BEGIN
   IF NEW.match_id <> OLD.match_id
@@ -125,8 +118,7 @@ BEGIN
 END;
 $$;
 
-DROP TRIGGER IF EXISTS trg_messages_protect_immutable ON public.messages;
-CREATE TRIGGER trg_messages_protect_immutable
+CREATE OR REPLACE TRIGGER trg_messages_protect_immutable
   BEFORE UPDATE ON public.messages
   FOR EACH ROW
   EXECUTE FUNCTION public.protect_message_immutable_columns();
@@ -138,7 +130,7 @@ CREATE OR REPLACE FUNCTION public.deactivate_match_on_block()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
   v_user_a uuid;
@@ -158,8 +150,7 @@ BEGIN
 END;
 $$;
 
-DROP TRIGGER IF EXISTS trg_blocks_deactivate_match ON public.blocks;
-CREATE TRIGGER trg_blocks_deactivate_match
+CREATE OR REPLACE TRIGGER trg_blocks_deactivate_match
   AFTER INSERT ON public.blocks
   FOR EACH ROW
   EXECUTE FUNCTION public.deactivate_match_on_block();
@@ -174,7 +165,7 @@ CREATE OR REPLACE FUNCTION public.compute_schedule_overlap_score(
 RETURNS double precision
 LANGUAGE plpgsql
 IMMUTABLE
-SET search_path = public, pg_temp
+SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
   v_m0 bigint;
@@ -257,7 +248,7 @@ CREATE OR REPLACE FUNCTION public.update_fuzzed_location(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
   v_uid uuid;
@@ -350,7 +341,7 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
   v_uid uuid;
@@ -587,7 +578,7 @@ CREATE OR REPLACE FUNCTION public.record_swipe_and_match(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
   v_actor_id uuid;
@@ -817,7 +808,7 @@ CREATE OR REPLACE FUNCTION public.export_my_data()
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
   v_uid uuid;
@@ -929,45 +920,9 @@ REVOKE ALL ON FUNCTION public.export_my_data() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.export_my_data() TO authenticated;
 
 -- -----------------------------------------------------------------------------
--- 10. LGPD RPC: delete_my_account (Art. 18 — Right to be Forgotten)
+-- 10. LGPD ACCOUNT DELETION (Art. 18 — Right to be Forgotten)
+-- Implemented via Zero-Trust Edge Function `delete-account` using
+-- `supabase.auth.admin.deleteUser(uid)` (revokes JWT/sessions cleanly and
+-- cascades ON DELETE CASCADE across `public.profiles` and all user tables,
+-- after purging `avatars` objects in Storage).
 -- -----------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.delete_my_account()
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, pg_temp
-AS $$
-DECLARE
-  v_uid uuid;
-  v_photo_paths jsonb;
-BEGIN
-  v_uid := auth.uid();
-  IF v_uid IS NULL THEN
-    RAISE EXCEPTION 'UNAUTHORIZED: Authentication required.'
-      USING ERRCODE = 'insufficient_privilege';
-  END IF;
-
-  -- Capture avatar paths so client/edge worker can purge objects from Storage API
-  SELECT COALESCE(jsonb_agg(pp.storage_path), '[]'::jsonb)
-  INTO v_photo_paths
-  FROM public.profile_photos pp
-  WHERE pp.user_id = v_uid;
-
-  -- Cascade-delete public profile & all linked rows (photos, games, badges, swipes,
-  -- matches, messages, lobbies, blocks, reports, key backups)
-  DELETE FROM public.profiles WHERE id = v_uid;
-
-  -- Delete identity in auth.users to immediately revoke JWTs & refresh tokens
-  DELETE FROM auth.users WHERE id = v_uid;
-
-  RETURN jsonb_build_object(
-    'deleted', true,
-    'user_id', v_uid,
-    'storage_paths_to_purge', v_photo_paths,
-    'deleted_at', now()
-  );
-END;
-$$;
-
-REVOKE ALL ON FUNCTION public.delete_my_account() FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.delete_my_account() TO authenticated;

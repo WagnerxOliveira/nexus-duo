@@ -648,7 +648,11 @@ export class SupabaseNexusRepository implements INexusRepository {
   async deleteAccount(): Promise<{ deletedAt: string }> {
     const client = getSupabaseBrowserClient();
     if (client) {
-      await client.rpc('delete_my_account');
+      const { error } = await client.functions.invoke('delete-account');
+      if (error) {
+        throw new Error(`Falha ao excluir conta LGPD: ${error.message}`);
+      }
+      await client.auth.signOut();
     }
     return this.fallback.deleteAccount();
   }

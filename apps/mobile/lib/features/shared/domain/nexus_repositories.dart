@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../../../core/errors/app_failure.dart';
 import '../../chat/domain/chat_message.dart';
 import '../../discovery/domain/discovery_entities.dart';
@@ -43,6 +45,12 @@ abstract interface class IProfileRepository {
   });
   Future<Result<Map<String, dynamic>>> exportLgpdJson();
   Future<Result<void>> deleteMyAccount();
+  Future<Result<String>> uploadSanitizedAvatar({
+    required Uint8List rawBytes,
+    required String fileName,
+    int position = 0,
+    bool isPrimary = true,
+  });
 }
 
 abstract interface class IDiscoveryRepository {

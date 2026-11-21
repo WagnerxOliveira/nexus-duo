@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import '../../../core/crypto/e2ee_cipher.dart';
 import '../../../core/domain/value_objects/gamer_age.dart';
 import '../../../core/domain/value_objects/weekly_schedule_mask.dart';
 import '../../../core/errors/app_failure.dart';
+import '../../../core/media/avatar_photo_sanitizer.dart';
 import '../../chat/domain/chat_message.dart';
 import '../../discovery/domain/discovery_entities.dart';
 import '../../discovery/domain/match_scoring_strategy.dart';
@@ -683,6 +685,28 @@ class DemoSeedProfileRepository implements IProfileRepository {
     _store.matches.clear();
     _store.messagesByMatch.clear();
     return const Success<void>(null);
+  }
+
+  @override
+  Future<Result<String>> uploadSanitizedAvatar({
+    required Uint8List rawBytes,
+    required String fileName,
+    int position = 0,
+    bool isPrimary = true,
+  }) async {
+    const sanitizer = AvatarPhotoSanitizer();
+    final sanitizedRes = sanitizer.sanitize(rawBytes);
+    final sanitized = sanitizedRes.valueOrNull;
+    if (sanitized == null) {
+      return FailureResult<String>(
+        sanitizedRes.failureOrNull ??
+            const ValidationFailure('Falha ao sanitizar avatar.'),
+      );
+    }
+    final cleanName = fileName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+    return Success<String>(
+      'demo://${_store.myProfile.id}/$cleanName.${sanitized.format.extension}',
+    );
   }
 }
 
